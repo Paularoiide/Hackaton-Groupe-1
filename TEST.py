@@ -29,7 +29,7 @@ def adapter_dataset(dataset):
     dataset['TIME_TO_PARADE_2'] = dataset['TIME_TO_PARADE_2'].fillna(10000)
     dataset['TIME_TO_NIGHT_SHOW'] = dataset['TIME_TO_NIGHT_SHOW'].fillna(10000)
 
-    #On cherche à rendre utilisable DATETIME : on va le separer en trois paramètres --> jour de la semaine, date (dans le type date) et heure de la journée (avec heure et minute)
+    
     dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
     dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek
     dataset['DAY'] = dataset['DATETIME'].dt.day
