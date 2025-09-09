@@ -23,12 +23,11 @@ dataset.info()
 dataset.head()
 
 #Remplir les missing values avec infini dans 'TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW'
-dataset['TIME_TO_PARADE_1'].fillna(np.inf, inplace=True)
-dataset['TIME_TO_PARADE_2'].fillna(np.inf, inplace=True)
-dataset['TIME_TO_NIGHT_SHOW'].fillna(np.inf, inplace=True)
+dataset['TIME_TO_PARADE_1'] = dataset['TIME_TO_PARADE_1'].fillna(10000)
+dataset['TIME_TO_PARADE_2'] = dataset['TIME_TO_PARADE_2'].fillna(10000)
+dataset['TIME_TO_NIGHT_SHOW'] = dataset['TIME_TO_NIGHT_SHOW'].fillna(10000)
 
-#On crée une nouvelle colonne 'TIME_TO_PARADE_UNDER_2H' qui vaut 1 si un des deux parades a lieu dans les 2h, 0 sinon
-dataset['TIME_TO_PARADE_UNDER_2H'] = np.where((abs(dataset['TIME_TO_PARADE_1']) <= 120) | (abs(dataset['TIME_TO_PARADE_2']) <= 120), 1, 0)
+dataset.head()
 
 #On cherche à rendre utilisable DATETIME : on va le separer en trois paramètres --> jour de la semaine, date (dans le type date) et heure de la journée (avec heure et minute)
 dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
@@ -38,7 +37,7 @@ dataset['MONTH'] = dataset['DATETIME'].dt.month
 dataset['YEAR'] = dataset['DATETIME'].dt.year
 dataset['HOUR'] = dataset['DATETIME'].dt.hour
 dataset['MINUTE'] = dataset['DATETIME'].dt.minute
-
+dataset.head()
 
 predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW', 'TIME_TO_PARADE_UNDER_2H']
 X = dataset[predictors]
@@ -48,9 +47,10 @@ y = dataset['WAIT_TIME_IN_2H'] # Response variable
 
 # Define the initial selected and unselected predictors
 selected_predictors = ['const'] # Start with only the intercept
-unselected_predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW','TIME_TO_PARADE_UNDER_2H']
-X = dataset[predictors]
-  
+unselected_predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW', 'TIME_TO_PARADE_UNDER_2H']
+X = sm.add_constant(X)  # Ajoute une constante si elle n'existe pas déjà
+
+
 # Compute the Information Criterion (IC) for the model with only the intercept
 current_ic = sm.OLS(y, X[selected_predictors]).fit().aic # AIC
 
@@ -83,4 +83,3 @@ while len(unselected_predictors)>0:
 # Print results
 print("Selected predictors:", selected_predictors)
 print("IC values over iterations:", ic_values)
-dataset.head()
