@@ -87,6 +87,6 @@ valsetmeteo['y_pred'] = best_rf.predict(X_val)
 # Sauvegarde
 valcsv = valsetmeteo[['DATETIME', 'ENTITY_DESCRIPTION_SHORT', 'y_pred']]
 valcsv["KEY"] = "Validation"
-valcsv.to_csv("mon_nouveau_dataset.csv", index=False)
+valcsv.to_csv("mon_nouveau_dataset_paolo_try.csv", index=False)
 
 print(f"Temps d'exécution total: {time.time() - start_time:.2f} secondes")

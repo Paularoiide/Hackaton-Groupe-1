@@ -128,9 +128,9 @@ valcsv["KEY"] = "Validation" # La clé "Validation" est ajoutée comme demandé
 # Convertir 'DATETIME' en format string pour la sauvegarde si nécessaire, ou laisser tel quel
 valcsv['DATETIME'] = valcsv['DATETIME'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-valcsv.to_csv("mon_nouveau_dataset.csv", index=False)
+valcsv.to_csv("mon_nouveau_dataset_adrien.csv", index=False)
 
-print("Fichier 'mon_nouveau_dataset.csv' généré avec succès.")
+print("Fichier 'mon_nouveau_dataset_adrien.csv' généré avec succès.")
 print(f"Temps d'exécution total: {time.time() - start_time:.2f} secondes")
 
 
