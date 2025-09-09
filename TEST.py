@@ -89,7 +89,7 @@ def AIC(X, predictors, y):
 
 
 #On effectue une analyse des composantes en ne considérant pas les variables météorologiques
-dataset = datasetmeteo
+dataset = datasetsansmeteo
 adapter_dataset(dataset)
 
 predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW', 'TIME_TO_PARADE_UNDER_2H']
@@ -98,8 +98,31 @@ y = dataset['WAIT_TIME_IN_2H'] # Response variable
 
 pred, ic_values = AIC(X, predictors, y)
 
-X = dataset[pred]
+# Fit the final model with selected predictors
+selected_columns = [col for col in pred if col != 'const']
+X_selected = X[selected_columns]
+X_selected = sm.add_constant(X_selected)  # Add constant term
+final_model = sm.OLS(y, X_selected).fit()
+
+print(final_model.summary())
+print("RMSE:", RMSE(final_model.fittedvalues, y)) 
+
+#On effectue une analyse des composantes en considérant les variables météorologiques
+dataset = datasetmeteo
+adapter_dataset(dataset)
+
+predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW', 'TIME_TO_PARADE_UNDER_2H', 'temp', 'feels_like', 'humidity', 'clouds_all', 'wind_speed', 'rain_1h', 'snow_1h']
+X = dataset[predictors]
 y = dataset['WAIT_TIME_IN_2H'] # Response variable
 
-model = sm.OLS(y, X).fit()
-print(RMSE(model.predict(X),y))
+pred, ic_values = AIC(X, predictors, y)
+
+# Fit the final model with selected predictors
+selected_columns = [col for col in pred if col != 'const']
+X_selected = X[selected_columns]
+X_selected = sm.add_constant(X_selected)  # Add constant term
+final_model = sm.OLS(y, X_selected).fit()
+
+print(final_model.summary())
+print("RMSE:", RMSE(final_model.fittedvalues, y)) 
+
