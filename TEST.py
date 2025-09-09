@@ -19,16 +19,7 @@ def RMSE(x,y):
 
 # Put the dataset into a pandas DataFrame
 datasetmeteo = pd.read_table('weather_data_combined.csv', sep=',', decimal='.')
-datasetmeteo['rain_1h'].fillna(0,inplace=True)
-datasetmeteo['snow_1h'].fillna(0,inplace=True)
 datasetsansmeteo = pd.read_table('waiting_times_train.csv', sep=',', decimal='.')
-valsansmeteo=pd.read_table('waiting_times_X_test_val.csv', sep=',', decimal='.')
-weather=pd.read_table('weather_data.csv', sep=',', decimal='.')
-valmeteo=pd.merge(valsansmeteo,weather,on='DATETIME',how='left')
-valmeteo.to_csv('valmeteo.csv', index=False,encoding='utf-8')
-valmeteo['rain_1h'].fillna(0,inplace=True)
-valmeteo['snow_1h'].fillna(0,inplace=True)
-
 
 def adapter_dataset(dataset):
     #Remplir les missing values avec infini dans 'TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW'
@@ -45,7 +36,12 @@ def adapter_dataset(dataset):
     dataset['HOUR'] = dataset['DATETIME'].dt.hour
     dataset['MINUTE'] = dataset['DATETIME'].dt.minute
     dataset['TIME_TO_PARADE_UNDER_2H'] = np.where((abs(dataset['TIME_TO_PARADE_1']) <= 120) | (abs(dataset['TIME_TO_PARADE_2']) <= 120), 1, 0)
-    dataset['snow_1h'] = dataset['snow_1h'].fillna(0.05)
+
+#On va considérer l'impression du client sur l'influence du COVID 
+
+def ajouter_covid(dataset):
+    # Ajouter une colonne 'COVID_IMPACT' basée sur les dates
+    dataset['COVID_IMPACT'] = np.where(dataset['DATETIME'] >= pd.to_datetime('2020-03-01'), 1, 0)
 
 
 def AIC(X, predictors, y):
@@ -97,13 +93,43 @@ predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_C
 X = dataset[predictors]
 y = dataset['WAIT_TIME_IN_2H'] # Response variable
 
-AIC(X, predictors, y)
+pred, ic_values = AIC(X, predictors, y)
+
+#On effectue une analyse des composantes en ne considérant pas les variables météorologiques
+dataset = datasetsansmeteo
+adapter_dataset(dataset)
+
+X = dataset[pred]
+y = dataset['WAIT_TIME_IN_2H'] # Response variable
+
+model = sm.OLS(y, X).fit()
+print(RMSE(model.predict(X),y))
 
 #On effectue une analyse des composantes en considérant les variables météorologiques
 dataset = datasetmeteo
 adapter_dataset(dataset)
-predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW', 'TIME_TO_PARADE_UNDER_2H', 'temp', 'humidity', 'wind_speed', 'pressure', 'rain_1h','snow_1h', 'clouds_all']
+predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW', 'TIME_TO_PARADE_UNDER_2H', 'temp', 'humidity', 'wind_speed', 'pressure', 'rain_1h', 'clouds_all']
 X = dataset[predictors]
 y = dataset['WAIT_TIME_IN_2H'] # Response variable
 
-AIC(X, predictors, y)
+pred, ic_values = AIC(X, predictors, y)
+
+#On effectue une analyse des composantes en ne considérant pas les variables météorologiques
+dataset = datasetsansmeteo
+adapter_dataset(dataset)
+
+X = dataset[pred]
+y = dataset['WAIT_TIME_IN_2H'] # Response variable
+
+model = sm.OLS(y, X).fit()
+print(RMSE(model.predict(X),y))
+
+#On effectue une analyse des composantes en ne considérant pas les variables météorologiques et l'impact du COVID
+dataset = datasetsansmeteo
+adapter_dataset(dataset)
+ajouter_covid(dataset)
+predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW', 'TIME_TO_PARADE_UNDER_2H', 'COVID_IMPACT']
+X = dataset[predictors]
+y = dataset['WAIT_TIME_IN_2H'] # Response variable  
+
+pred, ic_values = AIC(X, predictors, y)
