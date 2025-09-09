@@ -28,6 +28,8 @@ valmeteo=pd.merge(valsansmeteo,weather,on='DATETIME',how='left')
 valmeteo.to_csv('valmeteo.csv', index=False,encoding='utf-8')
 valmeteo['rain_1h'].fillna(0,inplace=True)
 valmeteo['snow_1h'].fillna(0,inplace=True)
+
+
 def adapter_dataset(dataset):
     #Remplir les missing values avec infini dans 'TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW'
     dataset['TIME_TO_PARADE_1'] = dataset['TIME_TO_PARADE_1'].fillna(10000)
@@ -43,6 +45,8 @@ def adapter_dataset(dataset):
     dataset['HOUR'] = dataset['DATETIME'].dt.hour
     dataset['MINUTE'] = dataset['DATETIME'].dt.minute
     dataset['TIME_TO_PARADE_UNDER_2H'] = np.where((abs(dataset['TIME_TO_PARADE_1']) <= 120) | (abs(dataset['TIME_TO_PARADE_2']) <= 120), 1, 0)
+    dataset['snow_1h'] = dataset['snow_1h'].fillna(0.05)
+
 
 def AIC(X, predictors, y):
 # AIC and BIC based stepwise forward selection
