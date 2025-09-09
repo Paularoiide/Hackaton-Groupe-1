@@ -26,6 +26,8 @@ valsansmeteo=pd.read_table('waiting_times_X_test_val.csv', sep=',', decimal='.')
 weather=pd.read_table('weather_data.csv', sep=',', decimal='.')
 valmeteo=pd.merge(valsansmeteo,weather,on='DATETIME',how='left')
 valmeteo.to_csv('valmeteo.csv', index=False,encoding='utf-8')
+valmeteo['rain_1h'].fillna(0,inplace=True)
+valmeteo['snow_1h'].fillna(0,inplace=True)
 def adapter_dataset(dataset):
     #Remplir les missing values avec infini dans 'TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW'
     dataset['TIME_TO_PARADE_1'] = dataset['TIME_TO_PARADE_1'].fillna(10000)
