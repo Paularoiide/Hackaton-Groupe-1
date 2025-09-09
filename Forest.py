@@ -39,10 +39,13 @@ from sklearn.model_selection import RandomizedSearchCV
 
 # Création du modèle
 rf = RandomForestRegressor(
-    n_estimators=200,   # nombre d’arbres
-    max_depth=None,     # profondeur max (None = jusqu’aux feuilles)
-    random_state=42,    # pour la reproductibilité
-    n_jobs=-1           # utilise tous les cœurs CPU
+    n_estimators=1000,
+    min_samples_split=2,
+    min_samples_leaf=1,
+    max_features='log2',
+    max_depth=None,
+    random_state=42,
+    n_jobs=-1
 )
 
 # Séparation des sets
@@ -54,50 +57,55 @@ adapter_dataset(df)
 X = df.drop(columns=['WAIT_TIME_IN_2H', 'DATETIME', 'ENTITY_DESCRIPTION_SHORT'])
 y = df['WAIT_TIME_IN_2H']
 
-# Split en train (80%) et test (20%)
+# Split en train (70%) et test (20%)
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
+    X, y, test_size=0.3, random_state=42
 )
 
 rf.fit(X_train, y_train)
 
-
+"""           
 # Modèle de base
 rf = RandomForestRegressor(random_state=42, n_jobs=-1)
 
 # Grille de paramètres à explorer
 param_distributions = {
-    'n_estimators': [100, 200, 500, 1000],
-    'max_depth': [None, 10, 20, 30],
-    'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 4],
-    'max_features': ['sqrt', 'log2', None]
+    'n_estimators': [200, 400],   # évite 1000 pour le tuning
+    'max_depth': [10, 20, None],
+    'min_samples_split': [2, 5],
+    'min_samples_leaf': [1, 2],
+    'max_features': ['sqrt']
 }
+
 
 # RandomizedSearchCV
 random_search = RandomizedSearchCV(
     estimator=rf,
     param_distributions=param_distributions,
-    n_iter=20,   # nombre de combinaisons testées (au hasard)
+    n_iter=10,   # nombre de combinaisons testées (au hasard)
     cv=3,        # cross-validation en 3 folds
     scoring='neg_root_mean_squared_error',
     random_state=42,
-    n_jobs=-1
+    n_jobs=-1,
 )
 
 # Entraînement
 random_search.fit(X_train, y_train)
 
+
 print("Meilleurs paramètres :", random_search.best_params_)
 print("Meilleur score (CV RMSE):", -random_search.best_score_)
+
 
 # Test du Modèle
 
 # Prédictions
 best_rf= random_search.best_estimator_
-y_pred = best_rf.predict(X_test)
-
+"""
 # RMSE
+
+y_pred = rf.predict(X_test)
+
 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 print("RMSE Random Forest:", rmse)
 
@@ -105,7 +113,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 # Supposons que rf soit ton RandomForestRegressor déjà entraîné
-importances = best_rf.feature_importances_
+importances = rf.feature_importances_
 features = X_train.columns
 
 # Mettre dans un DataFrame pour plus de clarté
@@ -127,12 +135,14 @@ vf = valsetmeteo
 adapter_dataset(vf)
 X_val = vf.drop(columns=['DATETIME', 'ENTITY_DESCRIPTION_SHORT'])
 
-Y_val = best_rf.predict(X_val)
+Y_val = rf.predict(X_val)
+
+# Copier pour éviter de modifier vf directement
 val_results = valsetmeteo.copy()
 val_results['y_pred'] = Y_val
 
-
-columns_valcsv = ['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']
-valcsv = valsetmeteo[columns_valcsv]
+# Génération du CSV
+columns_valcsv = ['DATETIME', 'ENTITY_DESCRIPTION_SHORT', 'y_pred']
+valcsv = val_results[columns_valcsv]
 valcsv["KEY"] = "Validation"
 valcsv.to_csv("mon_nouveau_dataset.csv", index=False)
