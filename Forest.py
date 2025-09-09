@@ -45,6 +45,13 @@ def adapter_dataset(dataset):
     dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
     dataset['HOUR_COS'] = np.cos(2 * np.pi * dataset['HOUR'] / 24)
 
+    # Binarisation des attractions
+
+    dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
+    dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
+    dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
+
+
     
 # -----------------------------------------------------
 # 2. Séparation pré- / post-COVID
@@ -64,12 +71,22 @@ def train_two_models(df_pre, df_post, target="WAIT_TIME_IN_2H"):
     X_post, y_post = df_post[features], df_post[target]
 
     rf_pre = RandomForestRegressor(
-        n_estimators=500, max_depth=20, min_samples_leaf=2,
-        max_features="log2", random_state=42, n_jobs=-1
+        n_estimators=1000,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        max_features='log2',
+        max_depth=None,
+        random_state=42,
+        n_jobs=-1
     )
     rf_post = RandomForestRegressor(
-        n_estimators=500, max_depth=20, min_samples_leaf=2,
-        max_features="log2", random_state=42, n_jobs=-1
+        n_estimators=1000,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        max_features='log2',
+        max_depth=None,
+        random_state=42,
+        n_jobs=-1
     )
 
     rf_pre.fit(X_pre, y_pre)
@@ -96,6 +113,52 @@ def predict_two_models(rf_pre, rf_post, features, df, covid_date="2020-03-15"):
 
     return preds
 
+# -----------------------------------------------------
+# 5. Affichage des features
+# -----------------------------------------------------
+
+# --- entraînement + importance des features
+def train_and_feature_importance(df, target="WAIT_TIME_IN_2H", title=""):
+    features = [c for c in df.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
+    X, y = df[features], df[target]
+
+    # split train/test interne
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    rf = RandomForestRegressor(
+        n_estimators=1000,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        max_features='log2',
+        max_depth=None,
+        random_state=42,
+        n_jobs=-1
+    )
+    rf.fit(X_train, y_train)
+
+    y_pred = rf.predict(X_test)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    print(f"RMSE {title} :", rmse)
+
+    # importance
+    importances = rf.feature_importances_
+    feat_importances = pd.DataFrame({
+        "Feature": features,
+        "Importance": importances
+    }).sort_values("Importance", ascending=False)
+
+    print(f"\nTop 15 features {title}:\n", feat_importances.head(15))
+
+    # graphique
+    plt.figure(figsize=(8, 6))
+    plt.barh(feat_importances["Feature"][:15][::-1], feat_importances["Importance"][:15][::-1])
+    plt.title(f"Top 15 Features - {title}")
+    plt.xlabel("Importance")
+    plt.tight_layout()
+    plt.show()
+
+    return rf, features, rmse, feat_importances
+
 # Charger et préparer
 df = pd.read_csv("weather_data_combined.csv")
 adapter_dataset(df)
@@ -103,6 +166,9 @@ adapter_dataset(df)
 # Split pre/post covid
 df_pre, df_post = split_pre_post(df)
 
+#Affichage des features importante et rmse
+rf_pre, features_pre, rmse_pre, feat_pre = train_and_feature_importance(df_pre, title="Pré-COVID")
+rf_post, features_post, rmse_post, feat_post = train_and_feature_importance(df_post, title="Post-COVID")
 # Entraînement
 rf_pre, rf_post, features = train_two_models(df_pre, df_post)
 
@@ -115,9 +181,6 @@ y_val_pred = predict_two_models(rf_pre, rf_post, features, val)
 # Ajouter dans val + exporter
 val['y_pred'] = y_val_pred
 val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions.csv", index=False)
-
-rmse = np.sqrt(mean_squared_error(y_test, y_val_pred))
-print("RMSE Random Forest:", rmse)
 
 """
 # Création du modèle
