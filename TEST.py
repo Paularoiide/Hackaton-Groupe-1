@@ -29,16 +29,18 @@ dataset['TIME_TO_NIGHT_SHOW'].fillna(np.inf, inplace=True)
 
 dataset.head()
 
-#On cherche à rendre utilisable DATETIME : on va le separer en trois paramètres --> jour de la semaine, jour et heure 
+#On cherche à rendre utilisable DATETIME : on va le separer en trois paramètres --> jour de la semaine, date (dans le type date) et heure de la journée (avec heure et minute)
 dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
 dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek
 dataset['DAY'] = dataset['DATETIME'].dt.day
+dataset['MONTH'] = dataset['DATETIME'].dt.month
+dataset['YEAR'] = dataset['DATETIME'].dt.year
 dataset['HOUR'] = dataset['DATETIME'].dt.hour
-
-#On peut supprimer DATETIME
-dataset = dataset.drop(columns=['DATETIME'])
+dataset['MINUTE'] = dataset['DATETIME'].dt.minute
 dataset.head()
 
-predictors = ['DAY_OF_WEEK', 'DAY', 'HOUR','ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW']
+predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW']
 X = dataset[predictors]
 y = dataset['WAIT_TIME_IN_2H'] # Response variable
+
+dataset.head()
