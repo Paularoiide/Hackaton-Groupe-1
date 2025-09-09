@@ -21,3 +21,5 @@ def RMSE(x,y):
 dataset = pd.read_table('waiting_times_train.csv', sep=',', decimal='.')
 dataset.info()
 dataset.head()
+
+
