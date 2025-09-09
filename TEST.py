@@ -19,6 +19,8 @@ def RMSE(x,y):
 
 # Put the dataset into a pandas DataFrame
 datasetmeteo = pd.read_table('weather_data_combined.csv', sep=',', decimal='.')
+datasetmeteo['rain_1h'].fillna(0,inplace=True)
+datasetmeteo['snow_1h'].fillna(0,inplace=True)
 datasetsansmeteo = pd.read_table('waiting_times_train.csv', sep=',', decimal='.')
 
 def adapter_dataset(dataset):
