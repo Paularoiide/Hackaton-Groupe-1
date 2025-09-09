@@ -22,4 +22,23 @@ dataset = pd.read_table('waiting_times_train.csv', sep=',', decimal='.')
 dataset.info()
 dataset.head()
 
+#Remplir les missing values avec infini dans 'TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW'
+dataset['TIME_TO_PARADE_1'].fillna(np.inf, inplace=True)
+dataset['TIME_TO_PARADE_2'].fillna(np.inf, inplace=True)
+dataset['TIME_TO_NIGHT_SHOW'].fillna(np.inf, inplace=True)
 
+dataset.head()
+
+#On cherche à rendre utilisable DATETIME : on va le separer en trois paramètres --> jour de la semaine, jour et heure 
+dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
+dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek
+dataset['DAY'] = dataset['DATETIME'].dt.day
+dataset['HOUR'] = dataset['DATETIME'].dt.hour
+
+#On peut supprimer DATETIME
+dataset = dataset.drop(columns=['DATETIME'])
+dataset.head()
+
+predictors = ['DAY_OF_WEEK', 'DAY', 'HOUR','ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW']
+X = dataset[predictors]
+y = dataset['WAIT_TIME_IN_2H'] # Response variable
