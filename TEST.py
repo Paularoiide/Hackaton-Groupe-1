@@ -22,7 +22,10 @@ datasetmeteo = pd.read_table('weather_data_combined.csv', sep=',', decimal='.')
 datasetmeteo['rain_1h'].fillna(0,inplace=True)
 datasetmeteo['snow_1h'].fillna(0,inplace=True)
 datasetsansmeteo = pd.read_table('waiting_times_train.csv', sep=',', decimal='.')
-
+valsansmeteo=pd.read_table('waiting_times_X_test_val.csv', sep=',', decimal='.')
+weather=pd.read_table('weather_data.csv', sep=',', decimal='.')
+valmeteo=pd.merge(valsansmeteo,weather,on='DATETIME',how='left')
+valmeteo.to_csv('valmeteo.csv', index=False,encoding='utf-8')
 def adapter_dataset(dataset):
     #Remplir les missing values avec infini dans 'TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW'
     dataset['TIME_TO_PARADE_1'] = dataset['TIME_TO_PARADE_1'].fillna(10000)
@@ -93,7 +96,7 @@ AIC(X, predictors, y)
 #On effectue une analyse des composantes en considérant les variables météorologiques
 dataset = datasetmeteo
 adapter_dataset(dataset)
-predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW', 'TIME_TO_PARADE_UNDER_2H', 'temp', 'humidity', 'wind_speed', 'pressure', 'rain_1h', 'clouds_all']
+predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW', 'TIME_TO_PARADE_UNDER_2H', 'temp', 'humidity', 'wind_speed', 'pressure', 'rain_1h','snow_1h', 'clouds_all']
 X = dataset[predictors]
 y = dataset['WAIT_TIME_IN_2H'] # Response variable
 
