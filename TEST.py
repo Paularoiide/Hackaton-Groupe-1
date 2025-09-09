@@ -47,9 +47,8 @@ y = dataset['WAIT_TIME_IN_2H'] # Response variable
 
 # Define the initial selected and unselected predictors
 selected_predictors = ['const'] # Start with only the intercept
-unselected_predictors = ['ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW']
-X = sm.add_constant(X)  # Ajoute une constante si elle n'existe pas déjà
-
+unselected_predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW']
+X = dataset[predictors]
   
 # Compute the Information Criterion (IC) for the model with only the intercept
 current_ic = sm.OLS(y, X[selected_predictors]).fit().aic # AIC
