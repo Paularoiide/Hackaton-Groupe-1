@@ -94,7 +94,8 @@ print("Meilleur score (CV RMSE):", -random_search.best_score_)
 # Test du Modèle
 
 # Prédictions
-y_pred = rf.predict(X_test)
+best_rf= random_search.best_estimator_
+y_pred = best_rf.predict(X_test)
 
 # RMSE
 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
@@ -104,7 +105,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 # Supposons que rf soit ton RandomForestRegressor déjà entraîné
-importances = rf.feature_importances_
+importances = best_rf.feature_importances_
 features = X_train.columns
 
 # Mettre dans un DataFrame pour plus de clarté
@@ -126,8 +127,10 @@ vf = valsetmeteo
 adapter_dataset(vf)
 X_val = vf.drop(columns=['DATETIME', 'ENTITY_DESCRIPTION_SHORT'])
 
-Y_val = rf.predict(X_val)
-valsetmeteo['y_pred'] = Y_val
+Y_val = best_rf.predict(X_val)
+val_results = valsetmeteo.copy()
+val_results['y_pred'] = Y_val
+
 
 columns_valcsv = ['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']
 valcsv = valsetmeteo[columns_valcsv]
