@@ -28,7 +28,7 @@ dataset['TIME_TO_PARADE_2'].fillna(np.inf, inplace=True)
 dataset['TIME_TO_NIGHT_SHOW'].fillna(np.inf, inplace=True)
 
 #On crée une nouvelle colonne 'TIME_TO_PARADE_UNDER_2H' qui vaut 1 si un des deux parades a lieu dans les 2h, 0 sinon
-dataset['TIME_TO_PARADE_UNDER_2H'] = np.where((dataset['TIME_TO_PARADE_1'] <= 120) | (dataset['TIME_TO_PARADE_2'] <= 120), 1, 0)
+dataset['TIME_TO_PARADE_UNDER_2H'] = np.where((abs(dataset['TIME_TO_PARADE_1']) <= 120) | (abs(dataset['TIME_TO_PARADE_2']) <= 120), 1, 0)
 
 #On cherche à rendre utilisable DATETIME : on va le separer en trois paramètres --> jour de la semaine, date (dans le type date) et heure de la journée (avec heure et minute)
 dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
@@ -48,7 +48,7 @@ y = dataset['WAIT_TIME_IN_2H'] # Response variable
 
 # Define the initial selected and unselected predictors
 selected_predictors = ['const'] # Start with only the intercept
-unselected_predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW']
+unselected_predictors = ['DAY_OF_WEEK', 'DAY', 'MONTH', 'YEAR', 'HOUR', 'MINUTE', 'ADJUST_CAPACITY','DOWNTIME','CURRENT_WAIT_TIME','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW','TIME_TO_PARADE_UNDER_2H']
 X = dataset[predictors]
   
 # Compute the Information Criterion (IC) for the model with only the intercept
