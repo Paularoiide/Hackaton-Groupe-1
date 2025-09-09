@@ -1,12 +1,12 @@
-print("ceci est un test")
-print("test 2")
-print("test Adrien")
-print("le tuto de paul est bizarre mais c le meilleure")
-print("oui")
-print("je suis sur vs code ")
-print("paul a trollé")
-<<<<<<< HEAD
-print("Yassine est là")
-=======
-print("Clara a aussi trollé")
->>>>>>> 730c0233151cd5b70d401e2f42c01380ff94a44d
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.metrics import mean_squared_error
+from sklearn.decomposition import PCA
+
+def RMSE(x,y):
+  return np.sqrt(mean_squared_error(x,y))
+
