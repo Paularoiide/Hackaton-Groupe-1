@@ -15,7 +15,7 @@ def load_and_preprocess_data():
     valsetmeteo = pd.read_csv('valmeteo.csv')
     
     # Préprocessing optimisé
-    def preprocess_data(df):
+    def preprocess_data(df, covid_date="2020-03-15"):
         df = df.copy()
         # Remplir les NaN une seule fois
         time_cols = ['TIME_TO_PARADE_1', 'TIME_TO_PARADE_2', 'TIME_TO_NIGHT_SHOW']
@@ -31,8 +31,19 @@ def load_and_preprocess_data():
         df['HOUR'] = df['DATETIME'].dt.hour
         df['MINUTE'] = df['DATETIME'].dt.minute
         
+        # Ajout de la colonne post-COVID
+        covid_date_dt = pd.to_datetime(covid_date)
+        df['POST_COVID'] = (df['DATETIME'] > covid_date_dt).astype(int)
+        
         df['TIME_TO_PARADE_UNDER_2H'] = ((df['TIME_TO_PARADE_1'].abs() <= 120) | 
                                         (df['TIME_TO_PARADE_2'].abs() <= 120)).astype(int)
+        
+        # Suppression des colonnes spécifiées
+        colonnes_a_supprimer = ['DOWNTIME', 'MINUTE', 'TIME_TO_PARADE_UNDER_2H', 'clouds_all']
+        # On ne supprime que les colonnes qui existent dans le DataFrame
+        colonnes_existantes = [col for col in colonnes_a_supprimer if col in df.columns]
+        df = df.drop(columns=colonnes_existantes)
+        
         return df
     
     datasetmeteo = preprocess_data(datasetmeteo)
