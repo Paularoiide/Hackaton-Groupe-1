@@ -112,7 +112,9 @@ print(f"RMSE Random Forest sur l'ensemble de test: {rmse:.4f}")
 # Prédiction sur un ensemble de validation ou de nouvelles données
 # Pour cet exemple, nous allons simuler un ensemble de validation en prenant une partie du dataset original.
 # En production, 'valsetmeteo' serait un nouveau fichier CSV à prédire.
-valsetmeteo = datasetmeteo.sample(frac=0.1, random_state=42).copy() # Utiliser .copy() pour éviter SettingWithCopyWarning
+valsetmeteo = pd.read_csv('valmeteo.csv', sep=',', decimal='.')
+valsetmeteo = adapter_dataset(valsetmeteo) # Appliquez également le pré-traitement
+
 
 # Préparer les données de validation de la même manière que les données d'entraînement
 X_val = valsetmeteo.drop(columns=['DATETIME', 'ENTITY_DESCRIPTION_SHORT', 'WAIT_TIME_IN_2H'])
