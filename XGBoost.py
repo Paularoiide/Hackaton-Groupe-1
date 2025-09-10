@@ -129,8 +129,8 @@ adapter_dataset(datasetmeteo)
 dt_pre, dt_post = split_pre_post(datasetmeteo)
 
 #Affichage des features importante et rmse
-features_pre = meilleur_modele_XGBoost(dt_pre, title="Pré-COVID")
-features_post = meilleur_modele_XGBoost(dt_post, title="Post-COVID")
+features_pre = meilleur_modele_XGBoost(dt_pre)
+features_post = meilleur_modele_XGBoost(dt_post)
 
 #On entraîne les deux modèles
 rf_pre, rf_post = train_two_models(dt_pre, dt_post, features_pre, features_post)
