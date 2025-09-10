@@ -49,6 +49,49 @@ def adapter_dataset(dataset):
     dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
     dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
 
+     # Jour weekend
+    dataset['IS_WEEKEND'] = dataset['DAY_OF_WEEK'].isin([5, 6]).astype(int)
+
+    # Saison (0=hiver,1=printemps,2=été,3=automne)
+    dataset['SEASON'] = (dataset['MONTH'] % 12) // 3
+
+    # Périodes de la journée (catégoriel → peut être one-hot ensuite)
+    def get_part_of_day(h):
+        if 6 <= h < 12: return 0
+        elif 12 <= h < 18: return 1
+        elif 18 <= h < 23: return 2
+        else: return 3
+    dataset['PART_OF_DAY'] = dataset['HOUR'].apply(get_part_of_day)
+
+    # === 3. Proximité événements spéciaux ===
+    dataset['IS_PARADE_SOON'] = ((dataset['TIME_TO_PARADE_1'].between(-120, 120)) |
+                                 (dataset['TIME_TO_PARADE_2'].between(-120, 120))).astype(int)
+    dataset['IS_NIGHT_SHOW_SOON'] = (dataset['TIME_TO_NIGHT_SHOW'].between(-120, 120)).astype(int)
+
+    # === 4. Attractions (one-hot encoding direct) ===
+    attractions = dataset['ENTITY_DESCRIPTION_SHORT'].unique()
+    for att in attractions:
+        dataset[f"IS_ATTRACTION_{att.replace(' ', '_')}"] = (dataset['ENTITY_DESCRIPTION_SHORT'] == att).astype(int)
+
+    # === 5. Capacités et pannes ===
+    dataset['CAPACITY_RATIO'] = dataset['CURRENT_WAIT_TIME'] / (dataset['ADJUST_CAPACITY'] + 1e-6)
+    dataset['IS_DOWNTIME'] = (dataset['DOWNTIME'] > 0).astype(int)
+
+    # === 6. Météo enrichie ===
+    dataset['IS_RAINING'] = (dataset['rain_1h'] > 0.2).astype(int)
+    dataset['IS_SNOWING'] = (dataset['snow_1h'] > 0.05).astype(int)
+    dataset['IS_HOT'] = (dataset['temp'] > 25).astype(int)
+    dataset['IS_COLD'] = (dataset['temp'] < 5).astype(int)
+    dataset['IS_BAD_WEATHER'] = ((dataset['rain_1h'] > 2) |
+                                 (dataset['snow_1h'] > 0.5) |
+                                 (dataset['wind_speed'] > 30)).astype(int)
+
+    # Interaction température-humidité (ressenti de lourdeur)
+    dataset['TEMP_HUMIDITY_INDEX'] = dataset['temp'] * dataset['humidity']
+    dataset.drop(columns=["temp",'humidity','pressure'], inplace=True)
+
+
+
 
     
 # -----------------------------------------------------
