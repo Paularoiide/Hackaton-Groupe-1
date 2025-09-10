@@ -63,9 +63,6 @@ def adapter_dataset_2_groupes(dataset):
     dataset['IS_YEAR_2021'] = np.where(dataset['YEAR'] == 2021, 1, 0)
     dataset['IS_YEAR_2022'] = np.where(dataset['YEAR'] == 2022, 1, 0)
 
-    #On droppe les anciennes colonnes
-    dataset.drop(columns=['DAY_OF_WEEK','DAY','MONTH','YEAR'], inplace=True)
-
     # Cyclic encoding des heures
     dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
     dataset['HOUR_COS'] = np.cos(2 * np.pi * dataset['HOUR'] / 24)
@@ -78,7 +75,7 @@ def adapter_dataset_2_groupes(dataset):
     dataset['IS_SEASON_Spring'] = np.where(dataset['SEASON'] == 1, 1, 0)
     dataset['IS_SEASON_Summer'] = np.where(dataset['SEASON'] == 2, 1, 0)
     dataset['IS_SEASON_Autumn'] = np.where(dataset['SEASON'] == 3, 1, 0)
-    dataset.drop(columns=['SEASON'], inplace=True)  
+
 
     # Périodes de la journée (catégoriel → peut être one-hot ensuite)
     def get_part_of_day(h):
@@ -92,7 +89,6 @@ def adapter_dataset_2_groupes(dataset):
     dataset['IS_PART_OF_DAY_Morning'] = np.where(dataset['PART_OF_DAY'] == 0, 1, 0)
     dataset['IS_PART_OF_DAY_Afternoon'] = np.where(dataset['PART_OF_DAY'] == 1, 1, 0)
     dataset['IS_PART_OF_DAY_Evening'] = np.where(dataset['PART_OF_DAY'] == 2, 1, 0)
-    dataset.drop(columns=['PART_OF_DAY'], inplace=True) 
 
     # === 3. Proximité événements spéciaux ===
     dataset['IS_PARADE_SOON'] = ((dataset['TIME_TO_PARADE_1'].between(-120, 120)) |
@@ -121,6 +117,11 @@ def adapter_dataset_2_groupes(dataset):
     dataset.drop(columns=["temp",'humidity','pressure','rain_1h','snow_1h','TIME_TO_NIGHT_SHOW','HOUR','dew_point'], inplace=True)
 
     dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
+
+    #On droppe les anciennes colonnes
+    dataset.drop(columns=['DAY_OF_WEEK','DAY','MONTH','YEAR'], inplace=True)
+    dataset.drop(columns=['SEASON'], inplace=True)  
+    dataset.drop(columns=['PART_OF_DAY'], inplace=True) 
 
 def adapter_dataset(dataset):
     # === 1. Gestion des valeurs manquantes ===
@@ -267,7 +268,7 @@ def predict_two_models(rf_pre, rf_post, df, covid_date="2020-03-15"):
 
 
 #On adapte le dataset
-adapter_dataset_2_groupes(datasetmeteo)
+adapter_dataset(datasetmeteo)
 dt_pre, dt_post = split_pre_post(datasetmeteo)
 
 #On entraîne les deux modèles
@@ -275,10 +276,10 @@ rf_pre, rf_post = train_two_models(dt_pre, dt_post)
 
 # Test sur validation externe
 val = pd.read_csv("valmeteo.csv")
-adapter_dataset_2_groupes(val)
+adapter_dataset(val)
 
 y_val_pred = predict_two_models(rf_pre, rf_post, val)
 
 # Ajouter dans val + exporter
 val['y_pred'] = y_val_pred
-val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_xgboost_hyperpar_binaire.csv", index=False)
+val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_xgboost_hyperpar.csv", index=False)
