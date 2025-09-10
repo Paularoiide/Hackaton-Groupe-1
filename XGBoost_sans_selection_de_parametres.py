@@ -9,6 +9,7 @@ from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.metrics import mean_squared_error
 from sklearn.decomposition import PCA
 from xgboost import XGBRegressor
+from xgboost.callback import EarlyStopping
 
 def RMSE(x,y):
   return np.sqrt(mean_squared_error(x,y))
@@ -65,18 +66,21 @@ def split_pre_post(df, covid_date="2020-03-15"):
 # -----------------------------------------------------
 def train_two_models(df_pre, df_post, target="WAIT_TIME_IN_2H"):
 
-    features = [c for c in dt_pre.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
+    features = [c for c in df_pre.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
 
     X_pre, y_pre = df_pre[features], df_pre[target]
+    X_pre_train, X_pre_val, y_pre_train, y_pre_val = train_test_split(X_pre, y_pre, test_size=0.2, random_state=42)
+
     X_post, y_post = df_post[features], df_post[target]
+    X_post_train, X_post_val, y_post_train, y_post_val = train_test_split(X_post, y_post, test_size=0.2, random_state=42)
 
-    rf_pre = XGBRegressor()
+    rf_pre = XGBRegressor(n_estimators=500,  eval_metric="rmse")
 
-    rf_post = XGBRegressor()
+    rf_post = XGBRegressor(n_estimators=500, eval_metric="rmse")
 
-    rf_pre.fit(X_pre, y_pre)
-    rf_post.fit(X_post, y_post)
-
+    # Fit (xgboost 3.0.5: via callbacks)
+    rf_pre.fit(X_pre_train, y_pre_train, eval_set=[(X_pre_val, y_pre_val)], verbose=False)
+    rf_post.fit(X_post_train, y_post_train, eval_set=[(X_post_val, y_post_val)], verbose=False )
     return rf_pre, rf_post
 
 # -----------------------------------------------------
@@ -117,4 +121,4 @@ y_val_pred = predict_two_models(rf_pre, rf_post, val)
 
 # Ajouter dans val + exporter
 val['y_pred'] = y_val_pred
-val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_xgboost_3.csv", index=False)
+val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_xgboost_4.csv", index=False)
