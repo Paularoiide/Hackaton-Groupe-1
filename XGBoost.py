@@ -63,11 +63,10 @@ def split_pre_post(df, covid_date="2020-03-15"):
 # -----------------------------------------------------
 # 3. Entraînement des deux modèles
 # -----------------------------------------------------
-def train_two_models(df_pre, df_post, target="WAIT_TIME_IN_2H"):
-    features = [col for col in df_pre.columns if col not in [target, 'DATETIME', 'ENTITY_DESCRIPTION_SHORT']]
+def train_two_models(df_pre, df_post, features_pre, features_post, target="WAIT_TIME_IN_2H"):
 
-    X_pre, y_pre = df_pre[features], df_pre[target]
-    X_post, y_post = df_post[features], df_post[target]
+    X_pre, y_pre = df_pre[features_pre], df_pre[target]
+    X_post, y_post = df_post[features_post], df_post[target]
 
     rf_pre = XGBRegressor()
 
@@ -76,13 +75,13 @@ def train_two_models(df_pre, df_post, target="WAIT_TIME_IN_2H"):
     rf_pre.fit(X_pre, y_pre)
     rf_post.fit(X_post, y_post)
 
-    return rf_pre, rf_post, features
+    return rf_pre, rf_post
 
 # -----------------------------------------------------
 # 4. Prédictions avec les deux modèles
 # -----------------------------------------------------
 
-def predict_two_models(rf_pre, rf_post, features, df, covid_date="2020-03-15"):
+def predict_two_models(rf_pre, rf_post, features_pre, features_post, df, covid_date="2020-03-15"):
     df = df.copy()
     df['DATETIME'] = pd.to_datetime(df['DATETIME'])
 
@@ -92,27 +91,56 @@ def predict_two_models(rf_pre, rf_post, features, df, covid_date="2020-03-15"):
     preds = np.zeros(len(df))
 
     if mask_pre.any():
-        preds[mask_pre] = rf_pre.predict(df.loc[mask_pre, features])
+        preds[mask_pre] = rf_pre.predict(df.loc[mask_pre, features_pre])
     if mask_post.any():
-        preds[mask_post] = rf_post.predict(df.loc[mask_post, features])
+        preds[mask_post] = rf_post.predict(df.loc[mask_post, features_post])
 
     return preds
+
+# -----------------------------------------------------
+# On selectionne les meilleures features : qui donnent le meuilleur RSME pour un modèle XGBoost
+# -----------------------------------------------------
+def meilleur_modele_XGBoost(df, target = 'WAIT_TIME_IN_2H'):
+
+    #On sépare les features de la target:
+    features = [col for col in df.columns if col not in [target, 'DATETIME', 'ENTITY_DESCRIPTION_SHORT']]
+    X = df[features]
+    y = df[target]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    model = XGBRegressor()
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    rmse = RMSE(y_test, y_pred)
+    print(f"RMSE: {rmse}")
+
+    importance = model.feature_importances_
+    feature_importance = pd.Series(importance, index=features).sort_values(ascending=False)
+    print("Feature Importance:")
+    print(feature_importance)
+    #On retourne la liste des features avec la plus grande importance : 10 features
+    return feature_importance.head(10).index.tolist()
+
 
 #On adapte le dataset
 adapter_dataset(datasetmeteo)
 dt_pre, dt_post = split_pre_post(datasetmeteo)
 
+#Affichage des features importante et rmse
+features_pre = meilleur_modele_XGBoost(dt_pre, title="Pré-COVID")
+features_post = meilleur_modele_XGBoost(dt_post, title="Post-COVID")
+
 #On entraîne les deux modèles
-rf_pre, rf_post, features = train_two_models(dt_pre, dt_post)
-
-
+rf_pre, rf_post = train_two_models(dt_pre, dt_post, features_pre, features_post)
 
 # Test sur validation externe
 val = pd.read_csv("valmeteo.csv")
 adapter_dataset(val)
 
-y_val_pred = predict_two_models(rf_pre, rf_post, features, val)
+y_val_pred = predict_two_models(rf_pre, rf_post, features_pre, features_post, val)
 
 # Ajouter dans val + exporter
 val['y_pred'] = y_val_pred
-val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_xgboost.csv", index=False)
+val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_xgboost_2.csv", index=False)
