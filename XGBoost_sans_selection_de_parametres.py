@@ -121,7 +121,6 @@ def adapter_dataset(dataset):
     dataset['IS_YEAR_2022'] = np.where(dataset['YEAR'] == 2022, 1, 0)
 
     #supprimer les colonnes inutiles
-    dataset.drop(columns=['ENTITY_DESCRIPTION_SHORT'], inplace=True)
     dataset.drop(columns=['HOUR'], inplace=True) # Garder HOUR_SIN et HOUR_COS
     dataset.drop(columns=['DAY_OF_WEEK'], inplace=True) # Garder les binarisations
     dataset.drop(columns=['MONTH'], inplace=True) # Garder les binarisations
