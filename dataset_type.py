@@ -334,145 +334,22 @@ def adapter_dataset_PREDPOSTcovid_VACANCE_PAOLO(dataset):
     
     return dataset
 
-def adapter_dataset_en_6(dataset):
-    # === 1. Gestion des valeurs manquantes ===
-    dataset['TIME_TO_PARADE_1'] = dataset['TIME_TO_PARADE_1'].fillna(1e6)
-    dataset['TIME_TO_PARADE_2'] = dataset['TIME_TO_PARADE_2'].fillna(1e6)
-    dataset['TIME_TO_NIGHT_SHOW'] = dataset['TIME_TO_NIGHT_SHOW'].fillna(1e6)
-    dataset['snow_1h'] = dataset['snow_1h'].fillna(0)
-
-    # === 2. Conversion datetime et features temporelles ===
-    dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
-    dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek   # 0 = lundi
-    dataset['DAY'] = dataset['DATETIME'].dt.day
-    dataset['MONTH'] = dataset['DATETIME'].dt.month
-    dataset['YEAR'] = dataset['DATETIME'].dt.year
-    dataset['HOUR'] = dataset['DATETIME'].dt.hour
-    dataset['MINUTE'] = dataset['DATETIME'].dt.minute
-
-    # Cyclic encoding des heures
-    dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
-    dataset['HOUR_COS'] = np.cos(2 * np.pi * dataset['HOUR'] / 24)
-
-    # Jour weekend
-    dataset['IS_WEEKEND'] = dataset['DAY_OF_WEEK'].isin([5, 6]).astype(int)
-
-    # Saison (0=hiver,1=printemps,2=été,3=automne)
-    dataset['SEASON'] = (dataset['MONTH'] % 12) // 3
-
-    # Périodes de la journée (catégoriel → peut être one-hot ensuite)
-    def get_part_of_day(h):
-        if 6 <= h < 12: return 0
-        elif 12 <= h < 18: return 1
-        elif 18 <= h < 23: return 2
-        else: return 3
-    dataset['PART_OF_DAY'] = dataset['HOUR'].apply(get_part_of_day)
-
-    # === 3. Proximité événements spéciaux ===
-    dataset['IS_PARADE_SOON'] = ((dataset['TIME_TO_PARADE_1'].between(-120, 120)) |
-                                 (dataset['TIME_TO_PARADE_2'].between(-120, 120))).astype(int)
-    dataset['IS_NIGHT_SHOW_SOON'] = (dataset['TIME_TO_NIGHT_SHOW'].between(-120, 120)).astype(int)
-
-    # === 4. Attractions (one-hot encoding direct) ===
-    dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
-    dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
-    dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
-
-    # === 5. Capacités et pannes ===
-    dataset['CAPACITY_RATIO'] = dataset['CURRENT_WAIT_TIME'] / (dataset['ADJUST_CAPACITY'] + 1e-6)
-    dataset['CURRENT_WAIT_TIME'] = dataset['CURRENT_WAIT_TIME'] + dataset['DOWNTIME']
-
-    # === 6. Météo enrichie ===
-    dataset['IS_RAINING'] = (dataset['rain_1h'] > 0.2).astype(int)
-    dataset['IS_SNOWING'] = (dataset['snow_1h'] > 0.05).astype(int)
-    dataset['IS_HOT'] = (dataset['feels_like'] > 25).astype(int)
-    dataset['IS_COLD'] = (dataset['feels_like'] < 5).astype(int)
-    dataset['IS_BAD_WEATHER'] = ((dataset['rain_1h'] > 2) |
-                                 (dataset['snow_1h'] > 0.5) |
-                                 (dataset['wind_speed'] > 30)).astype(int)
-
-    # Interaction température-humidité (ressenti de lourdeur)
-    dataset['TEMP_HUMIDITY_INDEX'] = dataset['feels_like'] * dataset['humidity']
-    dataset.drop(columns=["temp",'humidity','pressure','rain_1h','snow_1h','TIME_TO_PARADE_1','TIME_TO_PARADE_2','TIME_TO_NIGHT_SHOW','HOUR',], inplace=True)
-
-    # Appliquer la détection des vacances
-    vacances_data = dataset['DATETIME'].apply(detecter_vacances_par_zone)
-    vacances_df = pd.DataFrame(vacances_data.tolist(), index=dataset.index)
-    dataset = pd.concat([dataset, vacances_df], axis=1)
+# IDEE DE CLARA LGINE 337
 
 
 
-def adapter_dataset_vacance_clara(dataset):
+import pandas as pd
+import numpy as np
+from datetime import datetime
+
+def adapter_dataset_8_groupes(dataset):
     # Faire une copie pour éviter les modifications sur l'original
     dataset = dataset.copy()
     
-    # 1. Créer des groupes basés sur les données manquantes pour les parades
-    dataset['PARADE_DATA_GROUP'] = 0
-    
-    # Groupe 0: Aucune information sur les parades (toutes valeurs manquantes)
-    mask_none = dataset['TIME_TO_PARADE_1'].isna() & dataset['TIME_TO_PARADE_2'].isna() & dataset['TIME_TO_NIGHT_SHOW'].isna()
-    dataset.loc[mask_none, 'PARADE_DATA_GROUP'] = 0
-    
-    # Groupe 1: Seulement TIME_TO_PARADE_1 disponible
-    mask_only_1 = dataset['TIME_TO_PARADE_1'].notna() & dataset['TIME_TO_PARADE_2'].isna() & dataset['TIME_TO_NIGHT_SHOW'].isna()
-    dataset.loc[mask_only_1, 'PARADE_DATA_GROUP'] = 1
-    
-    # Groupe 2: Seulement TIME_TO_PARADE_2 disponible
-    mask_only_2 = dataset['TIME_TO_PARADE_1'].isna() & dataset['TIME_TO_PARADE_2'].notna() & dataset['TIME_TO_NIGHT_SHOW'].isna()
-    dataset.loc[mask_only_2, 'PARADE_DATA_GROUP'] = 2
-    
-    # Groupe 3: Seulement TIME_TO_NIGHT_SHOW disponible
-    mask_only_night = dataset['TIME_TO_PARADE_1'].isna() & dataset['TIME_TO_PARADE_2'].isna() & dataset['TIME_TO_NIGHT_SHOW'].notna()
-    dataset.loc[mask_only_night, 'PARADE_DATA_GROUP'] = 3
-    
-    # Groupe 4: TIME_TO_PARADE_1 et TIME_TO_PARADE_2 disponibles
-    mask_1_and_2 = dataset['TIME_TO_PARADE_1'].notna() & dataset['TIME_TO_PARADE_2'].notna() & dataset['TIME_TO_NIGHT_SHOW'].isna()
-    dataset.loc[mask_1_and_2, 'PARADE_DATA_GROUP'] = 4
-    
-    # Groupe 5: Toutes les informations disponibles
-    mask_all = dataset['TIME_TO_PARADE_1'].notna() & dataset['TIME_TO_PARADE_2'].notna() & dataset['TIME_TO_NIGHT_SHOW'].notna()
-    dataset.loc[mask_all, 'PARADE_DATA_GROUP'] = 5
-    
-    # 2. Remplir snow_1h seulement (les autres restent NaN pour préserver les groupes)
-    dataset['snow_1h'] = dataset['snow_1h'].fillna(0)
-    
-    # 3. Conversion datetime
+    # Conversion datetime
     dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
-    dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek
-    dataset['DAY'] = dataset['DATETIME'].dt.day
-    dataset['MONTH'] = dataset['DATETIME'].dt.month
-    dataset['YEAR'] = dataset['DATETIME'].dt.year
-    dataset['HOUR'] = dataset['DATETIME'].dt.hour
-    dataset['MINUTE'] = dataset['DATETIME'].dt.minute
     
-    # 4. Parade proche (< 500) seulement pour les groupes qui ont ces données
-    dataset['TIME_TO_PARADE_UNDER_2H'] = 0
-    for group in [1, 2, 4, 5]:  # Groupes qui ont au moins une info de parade
-        mask_group = dataset['PARADE_DATA_GROUP'] == group
-        if group in [1, 4, 5]:
-            parade_1_condition = abs(dataset['TIME_TO_PARADE_1']) <= 500
-        else:
-            parade_1_condition = False
-        
-        if group in [2, 4, 5]:
-            parade_2_condition = abs(dataset['TIME_TO_PARADE_2']) <= 500
-        else:
-            parade_2_condition = False
-            
-        dataset.loc[mask_group, 'TIME_TO_PARADE_UNDER_2H'] = np.where(
-            parade_1_condition | parade_2_condition, 1, 0
-        )
-    
-    # 5. Encodage cyclique de l'heure
-    dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
-    dataset['HOUR_COS'] = np.cos(2 * np.pi * dataset['HOUR'] / 24)
-    
-    # 6. Binarisation des attractions
-    dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
-    dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
-    dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
-    
-    # 7. Fonction pour détecter les vacances scolaires par zone
+    # Fonction pour détecter les vacances scolaires par zone
     def detecter_vacances_par_zone(date):
         # Dates exactes des vacances scolaires françaises 2019-2022 par zone
         vacances_zones = {
@@ -511,7 +388,7 @@ def adapter_dataset_vacance_clara(dataset):
                 (datetime(2018, 12, 22), datetime(2019, 1, 6)),     # Noël
                 (datetime(2019, 2, 9), datetime(2019, 2, 24)),      # Hiver
                 (datetime(2019, 4, 6), datetime(2019, 4, 21)),      # Printemps
-                (datetime(2019, 7, 极), datetime(2019, 9, 1)),       # Été
+                (datetime(2019, 7, 6), datetime(2019, 9, 1)),       # Été
                 
                 # 2019-2020
                 (datetime(2019, 10, 19), datetime(2019, 11, 3)),    # Toussaint
@@ -540,7 +417,7 @@ def adapter_dataset_vacance_clara(dataset):
                 (datetime(2018, 12, 22), datetime(2019, 1, 6)),     # Noël
                 (datetime(2019, 2, 23), datetime(2019, 3, 10)),     # Hiver
                 (datetime(2019, 4, 20), datetime(2019, 5, 5)),      # Printemps
-                (datetime(2019, 7, 6), datetime(2019, 极, 1)),       # Été
+                (datetime(2019, 7, 6), datetime(2019, 9, 1)),       # Été
                 
                 # 2019-2020
                 (datetime(2019, 10, 19), datetime(2019, 11, 3)),    # Toussaint
@@ -553,7 +430,7 @@ def adapter_dataset_vacance_clara(dataset):
                 (datetime(2020, 10, 17), datetime(2020, 11, 1)),    # Toussaint
                 (datetime(2020, 12, 19), datetime(2021, 1, 3)),     # Noël
                 (datetime(2021, 2, 13), datetime(2021, 2, 28)),     # Hiver
-                (datetime极, 4, 24), datetime(2021, 5, 9)),      # Printemps
+                (datetime(2021, 4, 24), datetime(2021, 5, 9)),      # Printemps
                 (datetime(2021, 7, 6), datetime(2021, 9, 1)),       # Été
                 
                 # 2021-2022
@@ -579,9 +456,87 @@ def adapter_dataset_vacance_clara(dataset):
         
         return result
     
-    # Appliquer la détection des vacances
+    # Appliquer la fonction à toutes les dates et créer les colonnes
     vacances_data = dataset['DATETIME'].apply(detecter_vacances_par_zone)
-    vacances_df = pd.DataFrame(vacances_data.tolist(), index=dataset.index)
-    dataset = pd.concat([dataset, vacances_df], axis=1)
+    dataset['VACANCES_ZONE_A'] = vacances_data.apply(lambda x: x['VACANCES_ZONE_A'])
+    dataset['VACANCES_ZONE_B'] = vacances_data.apply(lambda x: x['VACANCES_ZONE_B'])
+    dataset['VACANCES_ZONE_C'] = vacances_data.apply(lambda x: x['VACANCES_ZONE_C'])
     
-    return dataset
+    # Créer les masques pour les 8 groupes
+    # 1. TIME_TO_PARADE_1 présent
+    mask_parade1 = ~dataset['TIME_TO_PARADE_1'].isna()
+    # 2. TIME_TO_PARADE_2 présent
+    mask_parade2 = ~dataset['TIME_TO_PARADE_2'].isna()
+    # 3. TIME_TO_NIGHT_SHOW présent
+    mask_night_show = ~dataset['TIME_TO_NIGHT_SHOW'].isna()
+    
+    # Créer les 8 groupes
+    groupes = {}
+    
+    # Groupe 1: Parade1 présent, Parade2 présent, NightShow présent
+    mask1 = mask_parade1 & mask_parade2 & mask_night_show
+    groupes['groupe_1'] = dataset[mask1].copy()
+    
+    # Groupe 2: Parade1 présent, Parade2 présent, NightShow absent
+    mask2 = mask_parade1 & mask_parade2 & ~mask_night_show
+    groupes['groupe_2'] = dataset[mask2].copy()
+    
+    # Groupe 3: Parade1 présent, Parade2 absent, NightShow présent
+    mask3 = mask_parade1 & ~mask_parade2 & mask_night_show
+    groupes['groupe_3'] = dataset[mask3].copy()
+    
+    # Groupe 4: Parade1 présent, Parade2 absent, NightShow absent
+    mask4 = mask_parade1 & ~mask_parade2 & ~mask_night_show
+    groupes['groupe_4'] = dataset[mask4].copy()
+    
+    # Groupe 5: Parade1 absent, Parade2 présent, NightShow présent
+    mask5 = ~mask_parade1 & mask_parade2 & mask_night_show
+    groupes['groupe_5'] = dataset[mask5].copy()
+    
+    # Groupe 6: Parade1 absent, Parade2 présent, NightShow absent
+    mask6 = ~mask_parade1 & mask_parade2 & ~mask_night_show
+    groupes['groupe_6'] = dataset[mask6].copy()
+    
+    # Groupe 7: Parade1 absent, Parade2 absent, NightShow présent
+    mask7 = ~mask_parade1 & ~mask_parade2 & mask_night_show
+    groupes['groupe_7'] = dataset[mask7].copy()
+    
+    # Groupe 8: Parade1 absent, Parade2 absent, NightShow absent
+    mask8 = ~mask_parade1 & ~mask_parade2 & ~mask_night_show
+    groupes['groupe_8'] = dataset[mask8].copy()
+    
+    # Pour chaque groupe, ajouter les features supplémentaires
+    for groupe_name, groupe_data in groupes.items():
+        if not groupe_data.empty:
+            # Remplir snow_1h avec 0 si manquant
+            groupe_data['snow_1h'] = groupe_data['snow_1h'].fillna(0)
+            
+            # Extraire les features datetime
+            groupe_data['DAY_OF_WEEK'] = groupe_data['DATETIME'].dt.dayofweek
+            groupe_data['DAY'] = groupe_data['DATETIME'].dt.day
+            groupe_data['MONTH'] = groupe_data['DATETIME'].dt.month
+            groupe_data['YEAR'] = groupe_data['DATETIME'].dt.year
+            groupe_data['HOUR'] = groupe_data['DATETIME'].dt.hour
+            groupe_data['MINUTE'] = groupe_data['DATETIME'].dt.minute
+            
+            # Encodage cyclique de l'heure
+            groupe_data['HOUR_SIN'] = np.sin(2 * np.pi * groupe_data['HOUR'] / 24)
+            groupe_data['HOUR_COS'] = np.cos(2 * np.pi * groupe_data['HOUR'] / 24)
+            
+            # Binarisation des attractions
+            groupe_data['IS_ATTRACTION_Water_Ride'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
+            groupe_data['IS_ATTRACTION_Pirate_Ship'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
+            groupe_data['IS_ATTRACTION__Flying_Coaster'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
+            
+            # Parade proche (< 500) - seulement si les données de parade existent
+            
+            # Initialiser à 0
+            groupe_data['TIME_TO_PARADE_UNDER_2H'] = 0
+            if 'TIME_TO_PARADE_1' in groupe_data.columns:
+                mask_parade1_close = groupe_data['TIME_TO_PARADE_1'].notna() & (abs(groupe_data['TIME_TO_PARADE_1']) <= 500)
+                groupe_data.loc[mask_parade1_close, 'TIME_TO_PARADE_UNDER_2H'] = 1
+            if 'TIME_TO_PARADE_2' in groupe_data.columns:
+                mask_parade2_close = groupe_data['TIME_TO_PARADE_2'].notna() & (abs(groupe_data['TIME_TO_PARADE_2']) <= 500)
+                groupe_data.loc[mask_parade2_close, 'TIME_TO_PARADE_UNDER_2H'] = 1
+
+    return groupes
