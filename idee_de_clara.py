@@ -1,3 +1,20 @@
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.metrics import mean_squared_error
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import RandomizedSearchCV
+from datetime import datetime
+from sklearn.metrics import mean_squared_error, mean_absolute_error  # Ajouter mean_absolute_error
+
+
+
 def adapter_dataset_8_groupes(dataset):
     # Faire une copie pour éviter les modifications sur l'original
     dataset = dataset.copy()
@@ -345,6 +362,7 @@ def predict_by_attr_and_parade_groups(models, features, df):
 # Utilisation
 # ------------------------
 # Préparation des données avec les 8 groupes
+df = pd.read_csv("weather_data_combined.csv")
 groupes = adapter_dataset_8_groupes(df)
 
 # Combiner tous les groupes pour l'entraînement
