@@ -14,6 +14,8 @@ def RMSE(x,y):
   return np.sqrt(mean_squared_error(x,y))
 
 # Put the dataset into a pandas DataFrame
+valsetsansmeteo = pd.read_table('waiting_times_X_test_val.csv', sep=',', decimal='.')
+valsetmeteo = pd.read_table('valmeteo.csv', sep=',', decimal='.')
 datasetmeteo = pd.read_table('weather_data_combined.csv', sep=',', decimal='.')
 datasetsansmeteo = pd.read_table('waiting_times_train.csv', sep=',', decimal='.')
 
@@ -52,3 +54,16 @@ y = dataset['WAIT_TIME_IN_2H'] # Response variable
 
 my_model = XGBRegressor()
 my_model.fit(X, y)
+
+print(RMSE(my_model.predict(X),y))
+
+#On test le modèle sur le dataset evaluation
+adapter_dataset(valsetmeteo)
+X_val = valsetmeteo[predictors]
+Y_val = my_model.predict(X_val)
+valsetmeteo['y_pred'] = Y_val
+
+columns_valcsv = ['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']
+valcsv = valsetmeteo[columns_valcsv]
+valcsv["KEY"] = "Validation"
+valcsv.to_csv("csv_XGBoost.csv", index=False)
