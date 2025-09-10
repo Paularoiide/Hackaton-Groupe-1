@@ -11,13 +11,6 @@ from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import RandomizedSearchCV
 
-"""
-# Put the dataset into a pandas DataFrame
-valsetsansmeteo = pd.read_table('waiting_times_X_test_val.csv', sep=',', decimal='.')
-valsetmeteo = pd.read_table('valmeteo.csv', sep=',', decimal='.')
-datasetmeteo = pd.read_table('weather_data_combined.csv', sep=',', decimal='.')
-datasetsansmeteo = pd.read_table('waiting_times_train.csv', sep=',', decimal='.')
-"""
 
 def adapter_dataset(dataset):
     # Remplir valeurs manquantes
@@ -46,11 +39,11 @@ def adapter_dataset(dataset):
     dataset['HOUR_COS'] = np.cos(2 * np.pi * dataset['HOUR'] / 24)
 
     # Binarisation des attractions
-
+    """
     dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
     dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
     dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
-
+    """
 
     
 # -----------------------------------------------------
@@ -94,6 +87,53 @@ def train_two_models(df_pre, df_post, target="WAIT_TIME_IN_2H"):
 
     return rf_pre, rf_post, features
 
+# ------------------------
+# Entraînement par attraction
+# ------------------------
+def train_by_attraction(df, target="WAIT_TIME_IN_2H"):
+    models = {}
+    features = [c for c in df.columns if c not in [target, "DATETIME"]]
+
+    for attraction in df["ENTITY_DESCRIPTION_SHORT"].unique():
+        print(f"\n--- Entraînement modèle pour {attraction} ---")
+        df_attr = df[df["ENTITY_DESCRIPTION_SHORT"] == attraction]
+
+        X, y = df_attr[features], df_attr[target]
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        rf = RandomForestRegressor(
+            n_estimators=500,
+            max_depth=20,
+            min_samples_leaf=2,
+            max_features="log2",
+            random_state=42,
+            n_jobs=-1
+        )
+        rf.fit(X_train, y_train)
+
+        y_pred = rf.predict(X_test)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+        print(f"RMSE {attraction} :", rmse)
+
+        models[attraction] = rf
+
+        # Importance des features
+        feat_importances = pd.DataFrame({
+            "Feature": features,
+            "Importance": rf.feature_importances_
+        }).sort_values("Importance", ascending=False)
+
+        print(f"\nTop 10 features pour {attraction}:\n", feat_importances.head(10))
+
+        plt.figure(figsize=(8, 6))
+        plt.barh(feat_importances["Feature"][:10][::-1], feat_importances["Importance"][:10][::-1])
+        plt.title(f"Top 10 Features - {attraction}")
+        plt.xlabel("Importance")
+        plt.tight_layout()
+        plt.show()
+
+    return models, features
+
 # -----------------------------------------------------
 # 4. Prédiction automatique (choisit le bon modèle)
 # -----------------------------------------------------
@@ -112,6 +152,19 @@ def predict_two_models(rf_pre, rf_post, features, df, covid_date="2020-03-15"):
         preds[mask_post] = rf_post.predict(df.loc[mask_post, features])
 
     return preds
+
+# ------------------------
+# Prédiction avec modèle par attraction
+# ------------------------
+def predict_by_attraction(models, features, df):
+    preds = np.zeros(len(df))
+
+    for attraction in df["ENTITY_DESCRIPTION_SHORT"].unique():
+        mask = df["ENTITY_DESCRIPTION_SHORT"] == attraction
+        if mask.any():
+            preds[mask] = models[attraction].predict(df.loc[mask, features])
+    return preds
+
 
 # -----------------------------------------------------
 # 5. Affichage des features
@@ -159,12 +212,37 @@ def train_and_feature_importance(df, target="WAIT_TIME_IN_2H", title=""):
 
     return rf, features, rmse, feat_importances
 
+
+# ------------------------
+# Application
+# ------------------------
+# Train
+df = pd.read_csv("weather_data_combined.csv")
+df = adapter_dataset(df)
+
+models_by_attr, features = train_by_attraction(df)
+
+# Validation externe
+val = pd.read_csv("valmeteo.csv")
+val = adapter_dataset(val)
+
+y_val_pred = predict_by_attraction(models_by_attr, features, val)
+
+# Export CSV
+val['y_pred'] = y_val_pred
+val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions.csv", index=False)
+
+"""
 # Charger et préparer
 df = pd.read_csv("weather_data_combined.csv")
 adapter_dataset(df)
 
+
 # Split pre/post covid
 df_pre, df_post = split_pre_post(df)
+
+# Split par attraction
+models_by_attraction, features_by_attraction = train_by_attraction(df)
 
 #Affichage des features importante et rmse
 rf_pre, features_pre, rmse_pre, feat_pre = train_and_feature_importance(df_pre, title="Pré-COVID")
@@ -181,6 +259,160 @@ y_val_pred = predict_two_models(rf_pre, rf_post, features, val)
 # Ajouter dans val + exporter
 val['y_pred'] = y_val_pred
 val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions.csv", index=False)
+
+"""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 """
 # Création du modèle
