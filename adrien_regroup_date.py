@@ -13,14 +13,15 @@ from sklearn.model_selection import RandomizedSearchCV
 from datetime import datetime
 from sklearn.metrics import mean_squared_error, mean_absolute_error  # Ajouter mean_absolute_error
 
-
-
-def adapter_dataset_8_groupes(dataset):
+def adapter_dataset_12_groupes_par_date(dataset):
     # Faire une copie pour éviter les modifications sur l'original
     dataset = dataset.copy()
     
     # Conversion datetime
     dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
+    
+    # Trier par date pour assurer un ordre chronologique
+    dataset = dataset.sort_values('DATETIME').reset_index(drop=True)
     
     # Fonction pour détecter les vacances scolaires par zone
     def detecter_vacances_par_zone(date):
@@ -135,54 +136,33 @@ def adapter_dataset_8_groupes(dataset):
     dataset['VACANCES_ZONE_B'] = vacances_data.apply(lambda x: x['VACANCES_ZONE_B'])
     dataset['VACANCES_ZONE_C'] = vacances_data.apply(lambda x: x['VACANCES_ZONE_C'])
     
-    # Créer les masques pour les 8 groupes
-    # 1. TIME_TO_PARADE_1 présent
-    mask_parade1 = ~dataset['TIME_TO_PARADE_1'].isna()
-    # 2. TIME_TO_PARADE_2 présent
-    mask_parade2 = ~dataset['TIME_TO_PARADE_2'].isna()
-    # 3. TIME_TO_NIGHT_SHOW présent
-    mask_night_show = ~dataset['TIME_TO_NIGHT_SHOW'].isna()
+    # Remplacer les valeurs manquantes par 10^6 pour les colonnes spécifiques
+    parade_cols = ['TIME_TO_PARADE_1', 'TIME_TO_PARADE_2', 'TIME_TO_NIGHT_SHOW']
+    for col in parade_cols:
+        if col in dataset.columns:
+            dataset[col] = dataset[col].fillna(1000000)  # 10^6
     
-    # Créer les 8 groupes
+    # Créer 12 groupes uniformément répartis par date
+    n = len(dataset)
     groupes = {}
     
-    # Groupe 1: Parade1 présent, Parade2 présent, NightShow présent
-    mask1 = mask_parade1 & mask_parade2 & mask_night_show
-    groupes['groupe_1'] = dataset[mask1].copy()
-    
-    # Groupe 2: Parade1 présent, Parade2 présent, NightShow absent
-    mask2 = mask_parade1 & mask_parade2 & ~mask_night_show
-    groupes['groupe_2'] = dataset[mask2].copy()
-    
-    # Groupe 3: Parade1 présent, Parade2 absent, NightShow présent
-    mask3 = mask_parade1 & ~mask_parade2 & mask_night_show
-    groupes['groupe_3'] = dataset[mask3].copy()
-    
-    # Groupe 4: Parade1 présent, Parade2 absent, NightShow absent
-    mask4 = mask_parade1 & ~mask_parade2 & ~mask_night_show
-    groupes['groupe_4'] = dataset[mask4].copy()
-    
-    # Groupe 5: Parade1 absent, Parade2 présent, NightShow présent
-    mask5 = ~mask_parade1 & mask_parade2 & mask_night_show
-    groupes['groupe_5'] = dataset[mask5].copy()
-    
-    # Groupe 6: Parade1 absent, Parade2 présent, NightShow absent
-    mask6 = ~mask_parade1 & mask_parade2 & ~mask_night_show
-    groupes['groupe_6'] = dataset[mask6].copy()
-    
-    # Groupe 7: Parade1 absent, Parade2 absent, NightShow présent
-    mask7 = ~mask_parade1 & ~mask_parade2 & mask_night_show
-    groupes['groupe_7'] = dataset[mask7].copy()
-    
-    # Groupe 8: Parade1 absent, Parade2 absent, NightShow absent
-    mask8 = ~mask_parade1 & ~mask_parade2 & ~mask_night_show
-    groupes['groupe_8'] = dataset[mask8].copy()
-    
-    # Pour chaque groupe, ajouter les features supplémentaires
-    for groupe_name, groupe_data in groupes.items():
-        if not groupe_data.empty:
+    for i in range(12):
+        start_idx = i * n // 12
+        end_idx = (i + 1) * n // 12
+        
+        if i == 11:  # Dernier groupe inclut tout le reste
+            end_idx = n
+        
+        groupe_name = f'groupe_{i+1}'
+        groupes[groupe_name] = dataset.iloc[start_idx:end_idx].copy()
+        
+        # Pour chaque groupe, ajouter les features supplémentaires
+        if not groupes[groupe_name].empty:
+            groupe_data = groupes[groupe_name]
+            
             # Remplir snow_1h avec 0 si manquant
-            groupe_data['snow_1h'] = groupe_data['snow_1h'].fillna(0)
+            if 'snow_1h' in groupe_data.columns:
+                groupe_data['snow_1h'] = groupe_data['snow_1h'].fillna(0)
             
             # Extraire les features datetime
             groupe_data['DAY_OF_WEEK'] = groupe_data['DATETIME'].dt.dayofweek
@@ -197,68 +177,43 @@ def adapter_dataset_8_groupes(dataset):
             groupe_data['HOUR_COS'] = np.cos(2 * np.pi * groupe_data['HOUR'] / 24)
             
             # Binarisation des attractions
-            groupe_data['IS_ATTRACTION_Water_Ride'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
-            groupe_data['IS_ATTRACTION_Pirate_Ship'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
-            groupe_data['IS_ATTRACTION__Flying_Coaster'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
+            if 'ENTITY_DESCRIPTION_SHORT' in groupe_data.columns:
+                groupe_data['IS_ATTRACTION_Water_Ride'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
+                groupe_data['IS_ATTRACTION_Pirate_Ship'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
+                groupe_data['IS_ATTRACTION_Flying_Coaster'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
             
-            # Parade proche (< 500) - seulement si les données de parade existent
-            
-            # Initialiser à 0
-            groupe_data['TIME_TO_PARADE_UNDER_2H'] = 0
-            if 'TIME_TO_PARADE_1' in groupe_data.columns:
-                mask_parade1_close = groupe_data['TIME_TO_PARADE_1'].notna() & (abs(groupe_data['TIME_TO_PARADE_1']) <= 500)
-                groupe_data.loc[mask_parade1_close, 'TIME_TO_PARADE_UNDER_2H'] = 1
-            if 'TIME_TO_PARADE_2' in groupe_data.columns:
-                mask_parade2_close = groupe_data['TIME_TO_PARADE_2'].notna() & (abs(groupe_data['TIME_TO_PARADE_2']) <= 500)
-                groupe_data.loc[mask_parade2_close, 'TIME_TO_PARADE_UNDER_2H'] = 1
-
+            # Parade proche (< 500) - maintenant toutes les colonnes ont des valeurs (soit réelles, soit 10^6)
+            if 'TIME_TO_PARADE_1' in groupe_data.columns and 'TIME_TO_PARADE_2' in groupe_data.columns:
+                mask_parade1_close = abs(groupe_data['TIME_TO_PARADE_1']) <= 500
+                mask_parade2_close = abs(groupe_data['TIME_TO_PARADE_2']) <= 500
+                groupe_data['TIME_TO_PARADE_UNDER_2H'] = np.where(mask_parade1_close | mask_parade2_close, 1, 0)
+            else:
+                groupe_data['TIME_TO_PARADE_UNDER_2H'] = 0
+    
     return groupes
 
 
-
+# Fonction d'entraînement 12 modèles (par groupe temporel)
 # ------------------------
-# Fonction d’entraînement 8 modèles (par groupe de parade)
-# ------------------------
-def train_by_attr_and_parade_groups(df, target="WAIT_TIME_IN_2H"):
+def train_by_attr_and_time_groups(df, target="WAIT_TIME_IN_2H"):
     models = {}
     features = [c for c in df.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT", 
                                                   "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW"]]
     
-    # Définir les 8 groupes de parade
-    parade_groups = {
-        'groupe_1': {'parade1': True, 'parade2': True, 'night_show': True},
-        'groupe_2': {'parade1': True, 'parade2': True, 'night_show': False},
-        'groupe_3': {'parade1': True, 'parade2': False, 'night_show': True},
-        'groupe_4': {'parade1': True, 'parade2': False, 'night_show': False},
-        'groupe_5': {'parade1': False, 'parade2': True, 'night_show': True},
-        'groupe_6': {'parade1': False, 'parade2': True, 'night_show': False},
-        'groupe_7': {'parade1': False, 'parade2': False, 'night_show': True},
-        'groupe_8': {'parade1': False, 'parade2': False, 'night_show': False}
-    }
+    # Préparer les groupes avec votre fonction existante
+    groupes = adapter_dataset_12_groupes_par_date(df)
+    
+    # Combiner tous les groupes pour avoir toutes les données avec l'identifiant de groupe
+    df_combined = pd.concat([groupe.assign(TIME_GROUP=group_name) 
+                           for group_name, groupe in groupes.items()], ignore_index=True)
 
-    for attraction in df["ENTITY_DESCRIPTION_SHORT"].unique():
-        df_attr = df[df["ENTITY_DESCRIPTION_SHORT"] == attraction]
+    for attraction in df_combined["ENTITY_DESCRIPTION_SHORT"].unique():
+        df_attr = df_combined[df_combined["ENTITY_DESCRIPTION_SHORT"] == attraction]
         
-        for group_name, group_conditions in parade_groups.items():
-            # Filtrer selon les conditions du groupe
-            mask = pd.Series(True, index=df_attr.index)
+        for group_name in [f'groupe_{i}' for i in range(1, 13)]:
             
-            if group_conditions['parade1']:
-                mask = mask & df_attr['TIME_TO_PARADE_1'].notna()
-            else:
-                mask = mask & df_attr['TIME_TO_PARADE_1'].isna()
-                
-            if group_conditions['parade2']:
-                mask = mask & df_attr['TIME_TO_PARADE_2'].notna()
-            else:
-                mask = mask & df_attr['TIME_TO_PARADE_2'].isna()
-                
-            if group_conditions['night_show']:
-                mask = mask & df_attr['TIME_TO_NIGHT_SHOW'].notna()
-            else:
-                mask = mask & df_attr['TIME_TO_NIGHT_SHOW'].isna()
-            
-            df_group = df_attr[mask]
+            # Filtrer selon le groupe temporel
+            df_group = df_attr[df_attr['TIME_GROUP'] == group_name]
             
             if len(df_group) < 30:  # sécurité si trop peu de données
                 print(f"⚠️ Pas assez de données pour {attraction} ({group_name}): {len(df_group)} lignes")
@@ -266,6 +221,7 @@ def train_by_attr_and_parade_groups(df, target="WAIT_TIME_IN_2H"):
             
             print(f"\n--- Entraînement modèle {attraction} ({group_name}) ---")
             print(f"Taille du dataset: {len(df_group)} lignes")
+            print(f"Plage temporelle: {group_name}")
             
             X, y = df_group[features], df_group[target]
             
@@ -277,7 +233,7 @@ def train_by_attr_and_parade_groups(df, target="WAIT_TIME_IN_2H"):
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
             
             rf = RandomForestRegressor(
-                n_estimators=200,  # Réduit pour éviter le sur-apprentissage sur petits datasets
+                n_estimators=200,
                 max_depth=15,
                 min_samples_leaf=3,
                 max_features="sqrt",
@@ -295,7 +251,7 @@ def train_by_attr_and_parade_groups(df, target="WAIT_TIME_IN_2H"):
             # Sauvegarde du modèle
             models[(attraction, group_name)] = rf
             
-            # Importance des features (seulement si assez de données)
+            # Importance des features
             if len(df_group) > 50:
                 feat_importances = pd.DataFrame({
                     "Feature": features,
@@ -308,76 +264,103 @@ def train_by_attr_and_parade_groups(df, target="WAIT_TIME_IN_2H"):
 
 
 # ------------------------
-# Prédiction avec les 8 modèles (par groupe de parade)
+# Prédiction avec les 12 modèles (par groupe temporel)
 # ------------------------
-def predict_by_attr_and_parade_groups(models, features, df):
+def predict_by_attr_and_time_groups(models, features, df):
     preds = np.zeros(len(df))
     df = df.copy()
     
-    for attraction in df["ENTITY_DESCRIPTION_SHORT"].unique():
-        mask_attr = df["ENTITY_DESCRIPTION_SHORT"] == attraction
+    # Préparer les groupes avec votre fonction existante
+    groupes = adapter_dataset_12_groupes_par_date(df)
+    
+    # Combiner tous les groupes pour avoir toutes les données avec l'identifiant de groupe
+    df_combined = pd.concat([groupe.assign(TIME_GROUP=group_name) 
+                           for group_name, groupe in groupes.items()], ignore_index=True)
+
+    for attraction in df_combined["ENTITY_DESCRIPTION_SHORT"].unique():
+        mask_attr = df_combined["ENTITY_DESCRIPTION_SHORT"] == attraction
         
-        for group_name in ['groupe_1', 'groupe_2', 'groupe_3', 'groupe_4', 
-                          'groupe_5', 'groupe_6', 'groupe_7', 'groupe_8']:
+        for group_name in [f'groupe_{i}' for i in range(1, 13)]:
             
             if (attraction, group_name) not in models:
                 continue
                 
-            # Déterminer le masque pour ce groupe
-            group_conditions = {
-                'groupe_1': {'parade1': True, 'parade2': True, 'night_show': True},
-                'groupe_2': {'parade1': True, 'parade2': True, 'night_show': False},
-                'groupe_3': {'parade1': True, 'parade2': False, 'night_show': True},
-                'groupe_4': {'parade1': True, 'parade2': False, 'night_show': False},
-                'groupe_5': {'parade1': False, 'parade2': True, 'night_show': True},
-                'groupe_6': {'parade1': False, 'parade2': True, 'night_show': False},
-                'groupe_7': {'parade1': False, 'parade2': False, 'night_show': True},
-                'groupe_8': {'parade1': False, 'parade2': False, 'night_show': False}
-            }[group_name]
-            
-            mask_group = mask_attr.copy()
-            
-            if group_conditions['parade1']:
-                mask_group = mask_group & df['TIME_TO_PARADE_1'].notna()
-            else:
-                mask_group = mask_group & df['TIME_TO_PARADE_1'].isna()
-                
-            if group_conditions['parade2']:
-                mask_group = mask_group & df['TIME_TO_PARADE_2'].notna()
-            else:
-                mask_group = mask_group & df['TIME_TO_PARADE_2'].isna()
-                
-            if group_conditions['night_show']:
-                mask_group = mask_group & df['TIME_TO_NIGHT_SHOW'].notna()
-            else:
-                mask_group = mask_group & df['TIME_TO_NIGHT_SHOW'].isna()
+            # Filtrer selon le groupe temporel
+            mask_group = mask_attr & (df_combined['TIME_GROUP'] == group_name)
             
             if mask_group.any():
-                preds[mask_group] = models[(attraction, group_name)].predict(df.loc[mask_group, features])
+                # Obtenir les indices originaux pour la prédiction
+                original_indices = df_combined.loc[mask_group].index
+                preds[original_indices] = models[(attraction, group_name)].predict(df_combined.loc[mask_group, features])
     
     return preds
 
 
 # ------------------------
-# Utilisation
+# Fonction pour adapter le dataset aux prédictions (simplifiée)
 # ------------------------
-# Préparation des données avec les 8 groupes
-df = pd.read_csv("weather_data_combined.csv")
-groupes = adapter_dataset_8_groupes(df)
+def prepare_dataset_for_prediction(df):
+    """
+    Prépare le dataset pour la prédiction en utilisant votre fonction existante
+    """
+    groupes = adapter_dataset_12_groupes_par_date(df)
+    df_combined = pd.concat([groupe.assign(TIME_GROUP=group_name) 
+                           for group_name, groupe in groupes.items()], ignore_index=True)
+    return df_combined
 
-# Combiner tous les groupes pour l'entraînement
-df_combined = pd.concat(groupes.values(), ignore_index=True)
+
+# ------------------------
+# Utilisation complète
+# ------------------------
+# Chargement des données
+df = pd.read_csv("weather_data_combined.csv")
 
 # Entraînement des modèles
-models_8, features = train_by_attr_and_parade_groups(df_combined)
+print("Début de l'entraînement des 12 modèles...")
+models_12, features = train_by_attr_and_time_groups(df)
 
 # Prédiction sur les données de validation
 val = pd.read_csv("valmeteo.csv")
-val_processed = adapter_dataset_8_groupes(val)  # Traitement des données de validation
-val_combined = pd.concat(val_processed.values(), ignore_index=True)
+print("\nDébut des prédictions sur les données de validation...")
 
-y_val_pred = predict_by_attr_and_parade_groups(models_8, features, val_combined)
+val_processed = prepare_dataset_for_prediction(val)
+y_val_pred = predict_by_attr_and_time_groups(models_12, features, val)
 
 # Export CSV
-val_combined['y_pred'] = y_val_pred
-val_combined[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_8_groupes.csv", index=False)
+val_processed['y_pred'] = y_val_pred
+val_processed[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_12_groupes_temporels.csv", index=False)
+
+print("Prédictions terminées et sauvegardées dans val_predictions_12_groupes_temporels.csv")
+
+
+# ------------------------
+# Fonction pour analyser la distribution des groupes
+# ------------------------
+def analyser_distribution_groupes(df):
+    """
+    Analyse la distribution des données dans les 12 groupes
+    """
+    groupes = adapter_dataset_12_groupes_par_date(df)
+    
+    print("Distribution des données par groupe temporel:")
+    print("=" * 50)
+    
+    total_rows = 0
+    for group_name, groupe_data in groupes.items():
+        n_rows = len(groupe_data)
+        total_rows += n_rows
+        print(f"{group_name}: {n_rows} lignes ({n_rows/len(df)*100:.1f}%)")
+    
+    print("=" * 50)
+    print(f"Total: {total_rows} lignes")
+    
+    # Distribution par attraction dans chaque groupe
+    print("\nDistribution par attraction dans chaque groupe:")
+    for group_name, groupe_data in groupes.items():
+        print(f"\n{group_name}:")
+        attraction_counts = groupe_data['ENTITY_DESCRIPTION_SHORT'].value_counts()
+        for attraction, count in attraction_counts.items():
+            print(f"  {attraction}: {count} lignes")
+
+# Analyser la distribution
+analyser_distribution_groupes(df)
