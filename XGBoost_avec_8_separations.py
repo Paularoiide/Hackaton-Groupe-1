@@ -273,6 +273,7 @@ adapter_dataset_8_groupes(val)
 
 # Prédire avec les 8 modèles
 def predict_eight_models(models, val):
+    features = [c for c in val if c not in ["WAIT_TIME_IN_2H", "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
     # Créer une colonne pour les prédictions
     val['y_pred'] = np.nan
     
@@ -327,7 +328,6 @@ def predict_eight_models(models, val):
         X_val_8 = val[mask8][features]
         val.loc[mask8, 'y_pred'] = models['groupe_8'].predict(X_val_8)
 
-    
 
     return val['y_pred']
 
