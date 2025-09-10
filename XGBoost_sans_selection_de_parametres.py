@@ -9,7 +9,6 @@ from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.metrics import mean_squared_error
 from sklearn.decomposition import PCA
 from xgboost import XGBRegressor
-from xgboost.callback import EarlyStopping
 
 def RMSE(x,y):
   return np.sqrt(mean_squared_error(x,y))
@@ -61,9 +60,29 @@ def split_pre_post(df, covid_date="2020-03-15"):
     return df_pre, df_post
 
 
+#On cherche à avoir le meilleur RMSE possible en faisant varier n_estimators 
+def tune_hyperparameters(X_train, y_train, X_val, y_val):
+    best_rmse = float('inf')
+    best_n_estimators = None
+
+    for n_estimators in range(50, 500, 50):
+        model = XGBRegressor(n_estimators=n_estimators)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_val)
+        rmse = RMSE(y_val, y_pred)
+
+        if rmse < best_rmse:
+            best_rmse = rmse
+            best_n_estimators = n_estimators
+
+    print(f"Best n_estimators: {best_n_estimators} with RMSE: {best_rmse}")
+    
+    return best_n_estimators, best_rmse
+
 # -----------------------------------------------------
 # 3. Entraînement des deux modèles
 # -----------------------------------------------------
+
 def train_two_models(df_pre, df_post, target="WAIT_TIME_IN_2H"):
 
     features = [c for c in df_pre.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
@@ -74,14 +93,19 @@ def train_two_models(df_pre, df_post, target="WAIT_TIME_IN_2H"):
     X_post, y_post = df_post[features], df_post[target]
     X_post_train, X_post_val, y_post_train, y_post_val = train_test_split(X_post, y_post, test_size=0.2, random_state=42)
 
-    rf_pre = XGBRegressor(n_estimators=500,  eval_metric="rmse")
+    # Optionnel : tuner les hyperparamètres
+    best_n_pre, best_rmse_pre = tune_hyperparameters(X_pre_train, y_pre_train, X_pre_val, y_pre_val)
+    best_n_post, best_rmse_post = tune_hyperparameters(X_post_train, y_post_train, X_post_val, y_post_val)
 
-    rf_post = XGBRegressor(n_estimators=500, eval_metric="rmse")
+    rf_pre = XGBRegressor(n_estimators=best_n_pre)
 
-    # Fit (xgboost 3.0.5: via callbacks)
-    rf_pre.fit(X_pre_train, y_pre_train, eval_set=[(X_pre_val, y_pre_val)], verbose=False)
-    rf_post.fit(X_post_train, y_post_train, eval_set=[(X_post_val, y_post_val)], verbose=False )
+    rf_post = XGBRegressor(n_estimators=best_n_post)
+
+    rf_pre.fit(X_pre, y_pre)
+    rf_post.fit(X_post, y_post)
+
     return rf_pre, rf_post
+
 
 # -----------------------------------------------------
 # 4. Prédictions avec les deux modèles
@@ -121,4 +145,4 @@ y_val_pred = predict_two_models(rf_pre, rf_post, val)
 
 # Ajouter dans val + exporter
 val['y_pred'] = y_val_pred
-val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_xgboost_4.csv", index=False)
+val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_xgboost_hyperpar.csv", index=False)
