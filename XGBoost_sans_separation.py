@@ -76,9 +76,7 @@ def tune_hyperparameters(X_train, y_train, X_val, y_val):
 # 3. Entraînement des deux modèles
 # -----------------------------------------------------
 
-def train(df, target="WAIT_TIME_IN_2H"):
-
-    features = [c for c in df if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
+def train(df, features, target="WAIT_TIME_IN_2H"):
 
     X, y = df[features], df[target]
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -92,24 +90,50 @@ def train(df, target="WAIT_TIME_IN_2H"):
 
     return model
 
+#On selectionne les features
+def meilleur_modele_XGBoost(df, target = 'WAIT_TIME_IN_2H'):
+
+    #On sépare les features de la target:
+    features = [col for col in df.columns if col not in [target, 'DATETIME', 'ENTITY_DESCRIPTION_SHORT']]
+    X = df[features]
+    y = df[target]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    model = XGBRegressor()
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    rmse = RMSE(y_test, y_pred)
+    print(f"RMSE: {rmse}")
+
+    importance = model.feature_importances_
+    feature_importance = pd.Series(importance, index=features).sort_values(ascending=False)
+    print("Feature Importance:")
+    print(feature_importance)
+    #On retourne la liste des features avec la plus grande importance : 10 features
+    return feature_importance.head(15).index.tolist()
+
 
 #On adapte le dataset
 adapter_dataset(datasetmeteo)
 
-#On entraîne le modèle
-rf = train(datasetmeteo)
-
 features = [c for c in datasetmeteo if c not in ["WAIT_TIME_IN_2H", "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
+features_importantes = meilleur_modele_XGBoost(datasetmeteo)
+
+#On entraîne le modèle
+rf = train(datasetmeteo, features_importantes)
+
 
 # Test sur validation externe
 val = pd.read_csv("valmeteo.csv")
 adapter_dataset(val)
 
-X_val = val[features]
+X_val = val[features_importantes]
 Y_val = rf.predict(X_val)
 val['y_pred'] = Y_val
 
 columns_valcsv = ['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']
 valcsv = val[columns_valcsv]
 valcsv["KEY"] = "Validation"
-valcsv.to_csv("XGBoost_sans_separation.csv", index=False)
+valcsv.to_csv("XGBoost_sans_separation_avec_selection_15.csv", index=False)
