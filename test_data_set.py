@@ -1,3 +1,8 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime
+
+
 def adapt_data_paul_GX(dataset):
     # Faire une copie pour éviter les modifications sur l'original
     dataset = dataset.copy()
@@ -156,3 +161,14 @@ def adapt_data_paul_GX(dataset):
     dataset = pd.concat([dataset, vacances_df], axis=1)
     
     return dataset
+
+df = pd.read_csv('weather_combined.csv')
+
+# Appliquer votre fonction de prétraitement
+df_processed = adapt_data_paul_GX(df)
+
+# Afficher les premières lignes pour vérifier
+print("Dataset après traitement:")
+print(df_processed.head())
+print(f"\nShape du dataset: {df_processed.shape}")
+print(f"\nColonnes disponibles: {list(df_processed.columns)}")
