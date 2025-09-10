@@ -191,3 +191,176 @@ def adapter_dataset_12_groupes_par_date(dataset):
                 groupe_data['TIME_TO_PARADE_UNDER_2H'] = 0
     
     return groupes
+
+
+# Fonction d'entraînement 12 modèles (par groupe temporel)
+# ------------------------
+def train_by_attr_and_time_groups(df, target="WAIT_TIME_IN_2H"):
+    models = {}
+    features = [c for c in df.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT", 
+                                                  "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW"]]
+    
+    # Préparer les groupes avec votre fonction existante
+    groupes = adapter_dataset_12_groupes_par_date(df)
+    
+    # Combiner tous les groupes pour avoir toutes les données avec l'identifiant de groupe
+    df_combined = pd.concat([groupe.assign(TIME_GROUP=group_name) 
+                           for group_name, groupe in groupes.items()], ignore_index=True)
+
+    for attraction in df_combined["ENTITY_DESCRIPTION_SHORT"].unique():
+        df_attr = df_combined[df_combined["ENTITY_DESCRIPTION_SHORT"] == attraction]
+        
+        for group_name in [f'groupe_{i}' for i in range(1, 13)]:
+            
+            # Filtrer selon le groupe temporel
+            df_group = df_attr[df_attr['TIME_GROUP'] == group_name]
+            
+            if len(df_group) < 30:  # sécurité si trop peu de données
+                print(f"⚠️ Pas assez de données pour {attraction} ({group_name}): {len(df_group)} lignes")
+                continue
+            
+            print(f"\n--- Entraînement modèle {attraction} ({group_name}) ---")
+            print(f"Taille du dataset: {len(df_group)} lignes")
+            print(f"Plage temporelle: {group_name}")
+            
+            X, y = df_group[features], df_group[target]
+            
+            # Si très peu de données, on utilise tout pour l'entraînement
+            if len(df_group) < 100:
+                X_train, y_train = X, y
+                X_test, y_test = X, y  # Pour l'évaluation
+            else:
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            
+            rf = RandomForestRegressor(
+                n_estimators=200,
+                max_depth=15,
+                min_samples_leaf=3,
+                max_features="sqrt",
+                random_state=42,
+                n_jobs=-1
+            )
+            rf.fit(X_train, y_train)
+            
+            y_pred = rf.predict(X_test)
+            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+            mae = mean_absolute_error(y_test, y_pred)
+            print(f"RMSE {attraction} ({group_name}): {rmse:.2f}")
+            print(f"MAE {attraction} ({group_name}): {mae:.2f}")
+            
+            # Sauvegarde du modèle
+            models[(attraction, group_name)] = rf
+            
+            # Importance des features
+            if len(df_group) > 50:
+                feat_importances = pd.DataFrame({
+                    "Feature": features,
+                    "Importance": rf.feature_importances_
+                }).sort_values("Importance", ascending=False)
+                
+                print(f"\nTop 5 features {attraction} ({group_name}):\n", feat_importances.head(5))
+
+    return models, features
+
+
+# ------------------------
+# Prédiction avec les 12 modèles (par groupe temporel)
+# ------------------------
+def predict_by_attr_and_time_groups(models, features, df):
+    preds = np.zeros(len(df))
+    df = df.copy()
+    
+    # Préparer les groupes avec votre fonction existante
+    groupes = adapter_dataset_12_groupes_par_date(df)
+    
+    # Combiner tous les groupes pour avoir toutes les données avec l'identifiant de groupe
+    df_combined = pd.concat([groupe.assign(TIME_GROUP=group_name) 
+                           for group_name, groupe in groupes.items()], ignore_index=True)
+
+    for attraction in df_combined["ENTITY_DESCRIPTION_SHORT"].unique():
+        mask_attr = df_combined["ENTITY_DESCRIPTION_SHORT"] == attraction
+        
+        for group_name in [f'groupe_{i}' for i in range(1, 13)]:
+            
+            if (attraction, group_name) not in models:
+                continue
+                
+            # Filtrer selon le groupe temporel
+            mask_group = mask_attr & (df_combined['TIME_GROUP'] == group_name)
+            
+            if mask_group.any():
+                # Obtenir les indices originaux pour la prédiction
+                original_indices = df_combined.loc[mask_group].index
+                preds[original_indices] = models[(attraction, group_name)].predict(df_combined.loc[mask_group, features])
+    
+    return preds
+
+
+# ------------------------
+# Fonction pour adapter le dataset aux prédictions (simplifiée)
+# ------------------------
+def prepare_dataset_for_prediction(df):
+    """
+    Prépare le dataset pour la prédiction en utilisant votre fonction existante
+    """
+    groupes = adapter_dataset_12_groupes_par_date(df)
+    df_combined = pd.concat([groupe.assign(TIME_GROUP=group_name) 
+                           for group_name, groupe in groupes.items()], ignore_index=True)
+    return df_combined
+
+
+# ------------------------
+# Utilisation complète
+# ------------------------
+# Chargement des données
+df = pd.read_csv("weather_data_combined.csv")
+
+# Entraînement des modèles
+print("Début de l'entraînement des 12 modèles...")
+models_12, features = train_by_attr_and_time_groups(df)
+
+# Prédiction sur les données de validation
+val = pd.read_csv("valmeteo.csv")
+print("\nDébut des prédictions sur les données de validation...")
+
+val_processed = prepare_dataset_for_prediction(val)
+y_val_pred = predict_by_attr_and_time_groups(models_12, features, val)
+
+# Export CSV
+val_processed['y_pred'] = y_val_pred
+val_processed[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_12_groupes_temporels.csv", index=False)
+
+print("Prédictions terminées et sauvegardées dans val_predictions_12_groupes_temporels.csv")
+
+
+# ------------------------
+# Fonction pour analyser la distribution des groupes
+# ------------------------
+def analyser_distribution_groupes(df):
+    """
+    Analyse la distribution des données dans les 12 groupes
+    """
+    groupes = adapter_dataset_12_groupes_par_date(df)
+    
+    print("Distribution des données par groupe temporel:")
+    print("=" * 50)
+    
+    total_rows = 0
+    for group_name, groupe_data in groupes.items():
+        n_rows = len(groupe_data)
+        total_rows += n_rows
+        print(f"{group_name}: {n_rows} lignes ({n_rows/len(df)*100:.1f}%)")
+    
+    print("=" * 50)
+    print(f"Total: {total_rows} lignes")
+    
+    # Distribution par attraction dans chaque groupe
+    print("\nDistribution par attraction dans chaque groupe:")
+    for group_name, groupe_data in groupes.items():
+        print(f"\n{group_name}:")
+        attraction_counts = groupe_data['ENTITY_DESCRIPTION_SHORT'].value_counts()
+        for attraction, count in attraction_counts.items():
+            print(f"  {attraction}: {count} lignes")
+
+# Analyser la distribution
+analyser_distribution_groupes(df)
