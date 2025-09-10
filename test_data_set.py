@@ -162,7 +162,7 @@ def adapt_data_paul_GX(dataset):
     
     return dataset
 
-df = pd.read_csv('weather_combined.csv')
+df = pd.read_csv('weather_data_combined.csv')
 
 # Appliquer votre fonction de prétraitement
 df_processed = adapt_data_paul_GX(df)
