@@ -16,12 +16,15 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import seaborn as sns
 import xgboost as xgb
-
+from xgboost import XGBClassifier
 from datetime import datetime
 from datetime import date
 import shap
+from sklearn.preprocessing import LabelEncoder
+from xgboost import XGBClassifier
 
 # Put the dataset into a pandas DataFrame
+
 valsetsansmeteo = pd.read_table('waiting_times_X_test_val.csv', sep=',', decimal='.')
 valsetmeteo = pd.read_table('valmeteo.csv', sep=',', decimal='.')
 datasetmeteo = pd.read_table('weather_data_combined.csv', sep=',', decimal='.')
@@ -73,24 +76,21 @@ def RMSE(x,y):
 
 #________________________________________________________________________________________
 
-def adapter_dataset(dataset):
-  dataset['snow_1h'] = dataset['snow_1h'].fillna(0)
-  dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
-  dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek   # 0 = lundi
-  dataset['DAY'] = dataset['DATETIME'].dt.day
-  dataset['MONTH'] = dataset['DATETIME'].dt.month
-  dataset['YEAR'] = dataset['DATETIME'].dt.year
-  dataset['HOUR'] = dataset['DATETIME'].dt.hour
-  dataset['MINUTE'] = dataset['DATETIME'].dt.minute
-  dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
-  dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
-  dataset['IS_ATTRACTION_Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
-  dataset.drop(columns=[], inplace=True)
-
 def adapt_data_paul_GX(dataset):
     # Faire une copie pour éviter les modifications sur l'original
     dataset = dataset.copy()
+
+    dataset['IS_RAINING'] = (dataset['rain_1h'] > 0.2).astype(int) #No changes
+    dataset['IS_SNOWING'] = (dataset['snow_1h'] > 0.05).astype(int) #No changes
+    dataset['IS_HOT'] = (dataset['feels_like'] > 25).astype(int) #No changes
+    dataset['IS_COLD'] = (dataset['feels_like'] < 0).astype(int) #Could be to remove
+    #dataset['IS_BAD_WEATHER'] = ((dataset['rain_1h'] > 2) |     #Could be to remove
+                                 #(dataset['snow_1h'] > 0.5) |
+                                 #(dataset['wind_speed'] > 30)).astype(int)
+    dataset['TEMP_HUMIDITY_INDEX'] = dataset['feels_like'] * dataset['humidity']  #No changes
     
+
+    dataset['CAPACITY_RATIO'] = dataset['CURRENT_WAIT_TIME'] / (dataset['ADJUST_CAPACITY'] + 1e-6) #No changes with wait time removed
     # Remplir les autres valeurs manquantes
     dataset['snow_1h'] = dataset['snow_1h'].fillna(0)
     
@@ -229,7 +229,9 @@ def adapt_data_paul_GX(dataset):
     # Fusionner avec le dataset principal
     dataset = pd.concat([dataset, vacances_df], axis=1)
 
-    #dataset.drop(columns=[], inplace=True)
+
+
+    dataset.drop(columns=['CURRENT_WAIT_TIME','dew_point'], inplace=True) #feels_like, humidity,dew_point et parade_2, (day peut etre) peuvent être enlévés
     
     return dataset
 
@@ -328,7 +330,95 @@ def predict_two_models(model_pre, model_post, features, df, covid_date="2020-03-
 
     return preds
 
-def train_promising_models(df, target="WAIT_TIME_IN_2H", n_seeds=3):
+def get_sample(df, frac=0.3, random_state=42):
+    """
+    Retourne un sous-échantillon fixe du dataset.
+    Utile pour tester rapidement différentes combinaisons de features.
+
+    Args:
+        df (pd.DataFrame): ton dataset complet
+        frac (float): proportion du dataset à garder (0 < frac <= 1)
+        random_state (int): graine pour la reproductibilité
+
+    Returns:
+        pd.DataFrame: sous-échantillon du dataset
+    """
+    return df.sample(frac=frac, random_state=random_state).reset_index(drop=True)
+
+def eval_on_sample(df, target="WAIT_TIME_IN_2H", frac=0.3, random_state=42):
+    """
+    Prend un sous-échantillon fixe du dataset et entraîne un XGBRegressor.
+    Retourne le RMSE pour évaluer rapidement les performances.
+    """
+    # Sous-échantillonnage
+    df_sample = df.sample(frac=frac, random_state=random_state).reset_index(drop=True)
+
+    # Séparation features / target
+    features = [c for c in df_sample.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
+    X, y = df_sample[features], df_sample[target]
+
+    # Split train/test
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=random_state
+    )
+
+    # Modèle XGBoost simple
+    model = xgb.XGBRegressor(
+        n_estimators=300,
+        max_depth=6,
+        learning_rate=0.1,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=random_state,
+        n_jobs=-1
+    )
+    model.fit(X_train, y_train)
+
+    # Prédictions
+    y_pred = model.predict(X_val)
+
+    # Calcul du RMSE
+    rmse = np.sqrt(mean_squared_error(y_val, y_pred))
+    print(f"✅ RMSE sur {int(frac*100)}% du dataset :", rmse)
+
+    return model, features, rmse, df_sample
+
+def train_promising_models_classifier(df, target="WAIT_TIME_IN_2H", n_seeds=3):
+    # Transformer la cible en classes (par tranches de 5 minutes)
+    df = df.copy()
+    df["WAIT_CLASS"] = (df[target] / 5).round().astype(int)
+
+    # Encodage pour avoir des classes continues 0..N
+    le = LabelEncoder()
+    y = le.fit_transform(df["WAIT_CLASS"])
+
+    features = [c for c in df.columns if c not in [target, "WAIT_CLASS", "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
+    X = df[features]
+
+    # Paramètres prometteurs
+    param_list = [
+        {'subsample': 1.0, 'n_estimators': 800, 'max_depth': 6, 'learning_rate': 0.1, 'colsample_bytree': 0.8},
+        {'subsample': 0.7, 'n_estimators': 600, 'max_depth': 8, 'learning_rate': 0.1, 'colsample_bytree': 0.9},
+        {'subsample': 0.7, 'n_estimators': 800, 'max_depth': 5, 'learning_rate': 0.05, 'colsample_bytree': 0.7},
+    ]
+
+    models = []
+    for i, params in enumerate(param_list):
+        for seed in range(n_seeds):
+            model = XGBClassifier(
+                objective="multi:softmax",
+                num_class=len(le.classes_),  # nb exact de classes après encodage
+                random_state=42 + seed,
+                n_jobs=-1,
+                **params
+            )
+            model.fit(X, y)
+            models.append((model, le))  # on stocke aussi le LabelEncoder
+            print(f"✅ Classifieur {len(models)} entraîné avec params {params} (seed={42+seed})")
+
+    return models, features
+
+def train_promising_models(df, target="WAIT_TIME_IN_2H", n_seeds=2):
     features = [c for c in df.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
     X, y = df[features], df[target]
 
@@ -338,8 +428,14 @@ def train_promising_models(df, target="WAIT_TIME_IN_2H", n_seeds=3):
         {'subsample': 0.7, 'n_estimators': 600, 'max_depth': 8, 'learning_rate': 0.1, 'gamma': 1, 'colsample_bytree': 0.9},
         {'subsample': 0.7, 'n_estimators': 800, 'max_depth': 5, 'learning_rate': 0.05, 'gamma': 0, 'colsample_bytree': 0.7},
         {'subsample': 0.9, 'n_estimators': 200, 'max_depth': 10, 'learning_rate': 0.1, 'gamma': 0, 'colsample_bytree': 0.8},
-        {'subsample': 0.9, 'n_estimators': 600, 'max_depth': 7, 'learning_rate': 0.05, 'gamma': 1, 'colsample_bytree': 1.0}
-    ]
+        {'subsample': 0.9, 'n_estimators': 600, 'max_depth': 7, 'learning_rate': 0.05, 'gamma': 1, 'colsample_bytree': 1.0},
+        {'subsample': 0.8, 'n_estimators': 1000, 'max_depth': 9, 'learning_rate': 0.05, 'gamma': 0, 'colsample_bytree': 0.9},
+        {'subsample': 1.0, 'n_estimators': 400, 'max_depth': 4, 'learning_rate': 0.2, 'gamma': 1, 'colsample_bytree': 0.7},
+        {'subsample': 0.85, 'n_estimators': 700, 'max_depth': 7, 'learning_rate': 0.1, 'gamma': 0, 'colsample_bytree': 0.85},
+        {'subsample': 0.75, 'n_estimators': 500, 'max_depth': 6, 'learning_rate': 0.15, 'gamma': 2, 'colsample_bytree': 0.9},
+        {'subsample': 0.9, 'n_estimators': 900, 'max_depth': 8, 'learning_rate': 0.03, 'gamma': 0, 'colsample_bytree': 1.0}
+
+        ]
 
     models = []
     for i, params in enumerate(param_list):
@@ -354,6 +450,46 @@ def train_promising_models(df, target="WAIT_TIME_IN_2H", n_seeds=3):
             print(f"✅ Modèle {len(models)} entraîné avec params {params} (seed={42+seed})")
 
     return models, features
+
+def predict_multiple_models_classifier(models, features, df):
+    """
+    Prédit avec plusieurs classifieurs, moyenne les classes encodées,
+    puis reconvertit en minutes (classe originale * 5).
+    """
+    preds = np.zeros((len(df), len(models)))
+    
+    for i, (model, le) in enumerate(models):
+        preds[:, i] = model.predict(df[features])
+
+    # Moyenne des classes encodées
+    class_pred_encoded = np.rint(preds.mean(axis=1)).astype(int)
+
+    # Décodage vers WAIT_CLASS original
+    class_pred = models[0][1].inverse_transform(class_pred_encoded)
+
+    # Conversion en minutes
+    return class_pred * 5, preds
+
+
+def predict_hybrid(models_reg, models_clf, features, df, alpha=0.7):
+    """
+    Combine régression et classification avec une moyenne pondérée.
+    alpha : poids du regressor (0.0 = seulement classifier, 1.0 = seulement regressor)
+    """
+    # --- Régression ---
+    y_pred_reg, _ = predict_multiple_models(models_reg, features, df)
+
+    # --- Classification ---
+    y_pred_clf, _ = predict_multiple_models_classifier(models_clf, features, df)
+
+    # --- Hybrid ---
+    y_pred_hybrid = alpha * y_pred_reg + (1 - alpha) * y_pred_clf
+
+    # --- Arrondi au multiple de 5 ---
+    y_pred_hybrid = (np.round(y_pred_hybrid / 5) * 5).astype(int)
+
+    return y_pred_hybrid, y_pred_reg, y_pred_clf
+
 
 def predict_multiple_models(models, features, df):
     """
@@ -464,21 +600,25 @@ def ensemble_predict(models, weights, X):
 
 
 if __name__ == "__main__":
-    # Charger dataset complet
+
+  # Charger dataset complet
     df = pd.read_csv("weather_data_combined.csv")
     df = adapt_data_paul_GX(df)
 
-    # Entraîner plusieurs modèles avec params prometteurs
-    models, features = train_promising_models(df, n_seeds=3)
+    # Tester vite fait sur 30% des données
+    model, features, rmse, df_sample = eval_on_sample(df, frac=0.3)
 
-    # Validation externe
-    val = pd.read_csv("valmeteo.csv")
+    # Quand tu es satisfait → relancer sur tout le dataset
+
+
+    df = pd.read_csv("weather_data_combined.csv")
+    df = adapt_data_paul_GX(df) # Entraîner plusieurs modèles avec params prometteurs 
+    models, features = train_promising_models(df, n_seeds=4)  #Validation externe
+    val = pd.read_csv("valmeteo.csv") 
     val = adapt_data_paul_GX(val)
-
-    # Prédictions avec ensemble complet
-    y_val_pred, _ = predict_multiple_models(models, features, val)
-
-    # Export CSV
-    val['y_pred'] = y_val_pred
-    val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions.csv", index=False)
+    # Prédictions avec ensemble complet 
+    y_val_pred, _ = predict_multiple_models(models, features, val) # Export CSV 
+    val['y_pred'] = y_val_pred 
+    val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions.csv", index=False) 
     print("✅ Ensemble global écrit dans val_predictions.csv")
+
