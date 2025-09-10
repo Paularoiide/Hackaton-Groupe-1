@@ -529,13 +529,14 @@ def adapter_dataset_8_groupes(dataset):
             groupe_data['IS_ATTRACTION__Flying_Coaster'] = np.where(groupe_data['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
             
             # Parade proche (< 500) - seulement si les données de parade existent
-            if mask_parade1.any() or mask_parade2.any():
-                groupe_data['TIME_TO_PARADE_UNDER_2H'] = np.where(
-                    ((groupe_data['TIME_TO_PARADE_1'].notna()) & (abs(groupe_data['TIME_TO_PARADE_1']) <= 500)) | 
-                    ((groupe_data['TIME_TO_PARADE_2'].notna()) & (abs(groupe_data['TIME_TO_PARADE_2']) <= 500)),
-                    1, 0
-                )
-            else:
-                groupe_data['TIME_TO_PARADE_UNDER_2H'] = 0
-    
+            
+            # Initialiser à 0
+            groupe_data['TIME_TO_PARADE_UNDER_2H'] = 0
+            if 'TIME_TO_PARADE_1' in groupe_data.columns:
+                mask_parade1_close = groupe_data['TIME_TO_PARADE_1'].notna() & (abs(groupe_data['TIME_TO_PARADE_1']) <= 500)
+                groupe_data.loc[mask_parade1_close, 'TIME_TO_PARADE_UNDER_2H'] = 1
+            if 'TIME_TO_PARADE_2' in groupe_data.columns:
+                mask_parade2_close = groupe_data['TIME_TO_PARADE_2'].notna() & (abs(groupe_data['TIME_TO_PARADE_2']) <= 500)
+                groupe_data.loc[mask_parade2_close, 'TIME_TO_PARADE_UNDER_2H'] = 1
+
     return groupes
