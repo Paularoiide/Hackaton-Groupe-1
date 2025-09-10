@@ -334,6 +334,115 @@ def adapter_dataset_PREDPOSTcovid_VACANCE_PAOLO(dataset):
     
     return dataset
 
+
+
+#On va tout binariser les variables qualitatives
+def adapter_dataset_2_groupes(dataset):
+        # === 1. Gestion des valeurs manquantes ===
+    dataset['TIME_TO_PARADE_1'] = dataset['TIME_TO_PARADE_1'].fillna(1e6)
+    dataset['TIME_TO_PARADE_2'] = dataset['TIME_TO_PARADE_2'].fillna(1e6)
+    dataset['TIME_TO_NIGHT_SHOW'] = dataset['TIME_TO_NIGHT_SHOW'].fillna(1e6)
+    dataset['snow_1h'] = dataset['snow_1h'].fillna(0)
+
+    # === 2. Conversion datetime et features temporelles ===
+    dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
+    dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek   # 0 = lundi
+    dataset['DAY'] = dataset['DATETIME'].dt.day
+    dataset['MONTH'] = dataset['DATETIME'].dt.month
+    dataset['YEAR'] = dataset['DATETIME'].dt.year
+    dataset['HOUR'] = dataset['DATETIME'].dt.hour
+    dataset['MINUTE'] = dataset['DATETIME'].dt.minute
+
+    # On binarise les jours, les mois et les années
+    # Binarisation des mois 
+    dataset['IS_MONTH_January'] = np.where(dataset['MONTH'] == 1, 1, 0)
+    dataset['IS_MONTH_February'] = np.where(dataset['MONTH'] == 2, 1, 0)
+    dataset['IS_MONTH_March'] = np.where(dataset['MONTH'] == 3, 1, 0)
+    dataset['IS_MONTH_April'] = np.where(dataset['MONTH'] == 4, 1, 0)
+    dataset['IS_MONTH_May'] = np.where(dataset['MONTH'] == 5, 1, 0)
+    dataset['IS_MONTH_June'] = np.where(dataset['MONTH'] == 6, 1, 0)
+    dataset['IS_MONTH_July'] = np.where(dataset['MONTH'] == 7, 1, 0)
+    dataset['IS_MONTH_August'] = np.where(dataset['MONTH'] == 8, 1, 0)
+    dataset['IS_MONTH_September'] = np.where(dataset['MONTH'] == 9, 1, 0)       
+    dataset['IS_MONTH_October'] = np.where(dataset['MONTH'] == 10, 1, 0)
+    dataset['IS_MONTH_November'] = np.where(dataset['MONTH'] == 11, 1, 0)
+    dataset['IS_MONTH_December'] = np.where(dataset['MONTH'] == 12, 1, 0)
+
+    # Binarisation des jours de la semaine
+    dataset['IS_DAY_Monday'] = np.where(dataset['DAY_OF_WEEK'] == 0, 1, 0)
+    dataset['IS_DAY_Tuesday'] = np.where(dataset['DAY_OF_WEEK'] == 1, 1, 0)
+    dataset['IS_DAY_Wednesday'] = np.where(dataset['DAY_OF_WEEK'] == 2, 1, 0)
+    dataset['IS_DAY_Thursday'] = np.where(dataset['DAY_OF_WEEK'] == 3, 1, 0)
+    dataset['IS_DAY_Friday'] = np.where(dataset['DAY_OF_WEEK'] == 4, 1, 0)
+    dataset['IS_DAY_Saturday'] = np.where(dataset['DAY_OF_WEEK'] == 5, 1, 0)
+    dataset['IS_DAY_Sunday'] = np.where(dataset['DAY_OF_WEEK'] == 6, 1, 0)
+
+    # Binarisation des années
+    dataset['IS_YEAR_2019'] = np.where(dataset['YEAR'] == 2019, 1, 0)
+    dataset['IS_YEAR_2020'] = np.where(dataset['YEAR'] == 2020, 1, 0)
+    dataset['IS_YEAR_2021'] = np.where(dataset['YEAR'] == 2021, 1, 0)
+    dataset['IS_YEAR_2022'] = np.where(dataset['YEAR'] == 2022, 1, 0)
+
+    #On droppe les anciennes colonnes
+    dataset.drop(columns=['DAY_OF_WEEK','DAY','MONTH','YEAR'], inplace=True)
+
+    # Cyclic encoding des heures
+    dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
+    dataset['HOUR_COS'] = np.cos(2 * np.pi * dataset['HOUR'] / 24)
+
+    # Saison (0=hiver,1=printemps,2=été,3=automne)
+    dataset['SEASON'] = (dataset['MONTH'] % 12) // 3
+    
+    #On binarise les saisons
+    dataset['IS_SEASON_Winter'] = np.where(dataset['SEASON'] == 0, 1, 0)
+    dataset['IS_SEASON_Spring'] = np.where(dataset['SEASON'] == 1, 1, 0)
+    dataset['IS_SEASON_Summer'] = np.where(dataset['SEASON'] == 2, 1, 0)
+    dataset['IS_SEASON_Autumn'] = np.where(dataset['SEASON'] == 3, 1, 0)
+    dataset.drop(columns=['SEASON'], inplace=True)  
+
+    # Périodes de la journée (catégoriel → peut être one-hot ensuite)
+    def get_part_of_day(h):
+        if 6 <= h < 12: return 0
+        elif 12 <= h < 18: return 1
+        elif 18 <= h < 23: return 2
+        else: return 3
+    dataset['PART_OF_DAY'] = dataset['HOUR'].apply(get_part_of_day)
+
+    #On binarise les parties de la journée
+    dataset['IS_PART_OF_DAY_Morning'] = np.where(dataset['PART_OF_DAY'] == 0, 1, 0)
+    dataset['IS_PART_OF_DAY_Afternoon'] = np.where(dataset['PART_OF_DAY'] == 1, 1, 0)
+    dataset['IS_PART_OF_DAY_Evening'] = np.where(dataset['PART_OF_DAY'] == 2, 1, 0)
+    dataset.drop(columns=['PART_OF_DAY'], inplace=True) 
+
+    # === 3. Proximité événements spéciaux ===
+    dataset['IS_PARADE_SOON'] = ((dataset['TIME_TO_PARADE_1'].between(-120, 120)) |
+                                 (dataset['TIME_TO_PARADE_2'].between(-120, 120))).astype(int)
+    dataset['IS_NIGHT_SHOW_SOON'] = (dataset['TIME_TO_NIGHT_SHOW'].between(-120, 120)).astype(int)
+
+    # === 4. Attractions (one-hot encoding direct) ===
+    dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
+    dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
+
+    # === 5. Capacités et pannes ===
+    dataset['CAPACITY_RATIO'] = dataset['CURRENT_WAIT_TIME'] / (dataset['ADJUST_CAPACITY'] + 1e-6)
+    dataset['CURRENT_WAIT_TIME'] = dataset['CURRENT_WAIT_TIME'] + dataset['DOWNTIME']
+
+    # === 6. Météo enrichie ===
+    dataset['IS_RAINING'] = (dataset['rain_1h'] > 0.2).astype(int)
+    dataset['IS_SNOWING'] = (dataset['snow_1h'] > 0.05).astype(int)
+    dataset['IS_HOT'] = (dataset['feels_like'] > 25).astype(int)
+    dataset['IS_COLD'] = (dataset['feels_like'] < 5).astype(int)
+    dataset['IS_BAD_WEATHER'] = ((dataset['rain_1h'] > 2) |
+                                 (dataset['snow_1h'] > 0.5) |
+                                 (dataset['wind_speed'] > 30)).astype(int)
+
+    # Interaction température-humidité (ressenti de lourdeur)
+    dataset['TEMP_HUMIDITY_INDEX'] = dataset['feels_like'] * dataset['humidity']
+    dataset.drop(columns=["temp",'humidity','pressure','rain_1h','snow_1h','TIME_TO_NIGHT_SHOW','HOUR','dew_point'], inplace=True)
+
+    dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
+
+
 # IDEE DE CLARA LGINE 337
 
 

@@ -17,80 +17,23 @@ def RMSE(x,y):
 datasetmeteo = pd.read_table('weather_data_combined.csv', sep=',', decimal='.')
 datasetsansmeteo = pd.read_table('waiting_times_train.csv', sep=',', decimal='.')
 
-def adapter_dataset(dataset):
-    # Remplir valeurs manquantes
-    dataset['TIME_TO_PARADE_1'] = dataset['TIME_TO_PARADE_1'].fillna(10000)
-    dataset['TIME_TO_PARADE_2'] = dataset['TIME_TO_PARADE_2'].fillna(10000)
-    dataset['TIME_TO_NIGHT_SHOW'] = dataset['TIME_TO_NIGHT_SHOW'].fillna(10000)
+def adapter_dataset_2_groupes(dataset):
+        # === 1. Gestion des valeurs manquantes ===
+    dataset['TIME_TO_PARADE_1'] = dataset['TIME_TO_PARADE_1'].fillna(1e6)
+    dataset['TIME_TO_PARADE_2'] = dataset['TIME_TO_PARADE_2'].fillna(1e6)
+    dataset['TIME_TO_NIGHT_SHOW'] = dataset['TIME_TO_NIGHT_SHOW'].fillna(1e6)
     dataset['snow_1h'] = dataset['snow_1h'].fillna(0)
 
-    # Conversion datetime
+    # === 2. Conversion datetime et features temporelles ===
     dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
-    dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek
+    dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek   # 0 = lundi
     dataset['DAY'] = dataset['DATETIME'].dt.day
     dataset['MONTH'] = dataset['DATETIME'].dt.month
     dataset['YEAR'] = dataset['DATETIME'].dt.year
     dataset['HOUR'] = dataset['DATETIME'].dt.hour
     dataset['MINUTE'] = dataset['DATETIME'].dt.minute
 
-    # Parade proche (< 2h) et temps avant prochaine
-    dataset['TIME_TO_PARADE_UNDER_2H'] = np.where(
-        (abs(dataset['TIME_TO_PARADE_1']) <= 500) | (abs(dataset['TIME_TO_PARADE_2']) <= 500),
-        1, 0
-    )
-
-    # Encodage cyclique de l'heure
-    dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
-    dataset['HOUR_COS'] = np.cos(2 * np.pi * dataset['HOUR'] / 24)
-
-    # Binarisation des attractions
-
-    dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
-    dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
-    dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
-
-     # Jour weekend
-    dataset['IS_WEEKEND'] = dataset['DAY_OF_WEEK'].isin([5, 6]).astype(int)
-
-    # Saison (0=hiver,1=printemps,2=été,3=automne)
-    dataset['SEASON'] = (dataset['MONTH'] % 12) // 3
-
-    # Périodes de la journée (catégoriel → peut être one-hot ensuite)
-    def get_part_of_day(h):
-        if 6 <= h < 12: return 0
-        elif 12 <= h < 18: return 1
-        elif 18 <= h < 23: return 2
-        else: return 3
-    dataset['PART_OF_DAY'] = dataset['HOUR'].apply(get_part_of_day)
-
-    # === 3. Proximité événements spéciaux ===
-    dataset['IS_PARADE_SOON'] = ((dataset['TIME_TO_PARADE_1'].between(-120, 120)) |
-                                 (dataset['TIME_TO_PARADE_2'].between(-120, 120))).astype(int)
-    dataset['IS_NIGHT_SHOW_SOON'] = (dataset['TIME_TO_NIGHT_SHOW'].between(-120, 120)).astype(int)
-
-    # === 4. Attractions (one-hot encoding direct) ===
-    attractions = dataset['ENTITY_DESCRIPTION_SHORT'].unique()
-    for att in attractions:
-        dataset[f"IS_ATTRACTION_{att.replace(' ', '_')}"] = (dataset['ENTITY_DESCRIPTION_SHORT'] == att).astype(int)
-
-    # === 5. Capacités et pannes ===
-    dataset['CAPACITY_RATIO'] = dataset['CURRENT_WAIT_TIME'] / (dataset['ADJUST_CAPACITY'] + 1e-6)
-    dataset['IS_DOWNTIME'] = (dataset['DOWNTIME'] > 0).astype(int)
-
-    # === 6. Météo enrichie ===
-    dataset['IS_RAINING'] = (dataset['rain_1h'] > 0.2).astype(int)
-    dataset['IS_SNOWING'] = (dataset['snow_1h'] > 0.05).astype(int)
-    dataset['IS_HOT'] = (dataset['temp'] > 25).astype(int)
-    dataset['IS_COLD'] = (dataset['temp'] < 5).astype(int)
-    dataset['IS_BAD_WEATHER'] = ((dataset['rain_1h'] > 2) |
-                                 (dataset['snow_1h'] > 0.5) |
-                                 (dataset['wind_speed'] > 30)).astype(int)
-    
-     # Binarisation des attractions
-    dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
-    dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
-    dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
-
+    # On binarise les jours, les mois et les années
     # Binarisation des mois 
     dataset['IS_MONTH_January'] = np.where(dataset['MONTH'] == 1, 1, 0)
     dataset['IS_MONTH_February'] = np.where(dataset['MONTH'] == 2, 1, 0)
@@ -120,18 +63,129 @@ def adapter_dataset(dataset):
     dataset['IS_YEAR_2021'] = np.where(dataset['YEAR'] == 2021, 1, 0)
     dataset['IS_YEAR_2022'] = np.where(dataset['YEAR'] == 2022, 1, 0)
 
-    #supprimer les colonnes inutiles
-    dataset.drop(columns=['ENTITY_DESCRIPTION_SHORT'], inplace=True)
-    dataset.drop(columns=['HOUR'], inplace=True) # Garder HOUR_SIN et HOUR_COS
-    dataset.drop(columns=['DATETIME'], inplace=True)
-    dataset.drop(columns=['DAY_OF_WEEK'], inplace=True) # Garder les binarisations
-    dataset.drop(columns=['MONTH'], inplace=True) # Garder les binarisations
-    dataset.drop(columns=['YEAR'], inplace=True) # Garder les binarisations
+    # Cyclic encoding des heures
+    dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
+    dataset['HOUR_COS'] = np.cos(2 * np.pi * dataset['HOUR'] / 24)
 
+    # Saison (0=hiver,1=printemps,2=été,3=automne)
+    dataset['SEASON'] = (dataset['MONTH'] % 12) // 3
+    
+    #On binarise les saisons
+    dataset['IS_SEASON_Winter'] = np.where(dataset['SEASON'] == 0, 1, 0)
+    dataset['IS_SEASON_Spring'] = np.where(dataset['SEASON'] == 1, 1, 0)
+    dataset['IS_SEASON_Summer'] = np.where(dataset['SEASON'] == 2, 1, 0)
+    dataset['IS_SEASON_Autumn'] = np.where(dataset['SEASON'] == 3, 1, 0)
+
+
+    # Périodes de la journée (catégoriel → peut être one-hot ensuite)
+    def get_part_of_day(h):
+        if 6 <= h < 12: return 0
+        elif 12 <= h < 18: return 1
+        elif 18 <= h < 23: return 2
+        else: return 3
+    dataset['PART_OF_DAY'] = dataset['HOUR'].apply(get_part_of_day)
+
+    #On binarise les parties de la journée
+    dataset['IS_PART_OF_DAY_Morning'] = np.where(dataset['PART_OF_DAY'] == 0, 1, 0)
+    dataset['IS_PART_OF_DAY_Afternoon'] = np.where(dataset['PART_OF_DAY'] == 1, 1, 0)
+    dataset['IS_PART_OF_DAY_Evening'] = np.where(dataset['PART_OF_DAY'] == 2, 1, 0)
+
+    # === 3. Proximité événements spéciaux ===
+    dataset['IS_PARADE_SOON'] = ((dataset['TIME_TO_PARADE_1'].between(-120, 120)) |
+                                 (dataset['TIME_TO_PARADE_2'].between(-120, 120))).astype(int)
+    dataset['IS_NIGHT_SHOW_SOON'] = (dataset['TIME_TO_NIGHT_SHOW'].between(-120, 120)).astype(int)
+
+    # === 4. Attractions (one-hot encoding direct) ===
+    dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
+    dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
+
+    # === 5. Capacités et pannes ===
+    dataset['CAPACITY_RATIO'] = dataset['CURRENT_WAIT_TIME'] / (dataset['ADJUST_CAPACITY'] + 1e-6)
+    dataset['CURRENT_WAIT_TIME'] = dataset['CURRENT_WAIT_TIME'] + dataset['DOWNTIME']
+
+    # === 6. Météo enrichie ===
+    dataset['IS_RAINING'] = (dataset['rain_1h'] > 0.2).astype(int)
+    dataset['IS_SNOWING'] = (dataset['snow_1h'] > 0.05).astype(int)
+    dataset['IS_HOT'] = (dataset['feels_like'] > 25).astype(int)
+    dataset['IS_COLD'] = (dataset['feels_like'] < 5).astype(int)
+    dataset['IS_BAD_WEATHER'] = ((dataset['rain_1h'] > 2) |
+                                 (dataset['snow_1h'] > 0.5) |
+                                 (dataset['wind_speed'] > 30)).astype(int)
 
     # Interaction température-humidité (ressenti de lourdeur)
-    dataset['TEMP_HUMIDITY_INDEX'] = dataset['temp'] * dataset['humidity']
-    dataset.drop(columns=["temp",'humidity','pressure'], inplace=True)
+    dataset['TEMP_HUMIDITY_INDEX'] = dataset['feels_like'] * dataset['humidity']
+    dataset.drop(columns=["temp",'humidity','pressure','rain_1h','snow_1h','TIME_TO_NIGHT_SHOW','HOUR','dew_point'], inplace=True)
+
+    dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
+
+    #On droppe les anciennes colonnes
+    dataset.drop(columns=['DAY_OF_WEEK','DAY','MONTH','YEAR'], inplace=True)
+    dataset.drop(columns=['SEASON'], inplace=True)  
+    dataset.drop(columns=['PART_OF_DAY'], inplace=True) 
+
+def adapter_dataset(dataset):
+    # === 1. Gestion des valeurs manquantes ===
+    dataset['TIME_TO_PARADE_1'] = dataset['TIME_TO_PARADE_1'].fillna(1e6)
+    dataset['TIME_TO_PARADE_2'] = dataset['TIME_TO_PARADE_2'].fillna(1e6)
+    dataset['TIME_TO_NIGHT_SHOW'] = dataset['TIME_TO_NIGHT_SHOW'].fillna(1e6)
+    dataset['snow_1h'] = dataset['snow_1h'].fillna(0)
+
+    # === 2. Conversion datetime et features temporelles ===
+    dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
+    dataset['DAY_OF_WEEK'] = dataset['DATETIME'].dt.dayofweek   # 0 = lundi
+    dataset['DAY'] = dataset['DATETIME'].dt.day
+    dataset['MONTH'] = dataset['DATETIME'].dt.month
+    dataset['YEAR'] = dataset['DATETIME'].dt.year
+    dataset['HOUR'] = dataset['DATETIME'].dt.hour
+    dataset['MINUTE'] = dataset['DATETIME'].dt.minute
+
+    # Cyclic encoding des heures
+    dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
+    dataset['HOUR_COS'] = np.cos(2 * np.pi * dataset['HOUR'] / 24)
+
+    # Saison (0=hiver,1=printemps,2=été,3=automne)
+    dataset['SEASON'] = (dataset['MONTH'] % 12) // 3
+
+    # Périodes de la journée (catégoriel → peut être one-hot ensuite)
+    def get_part_of_day(h):
+        if 6 <= h < 12: return 0
+        elif 12 <= h < 18: return 1
+        elif 18 <= h < 23: return 2
+        else: return 3
+    dataset['PART_OF_DAY'] = dataset['HOUR'].apply(get_part_of_day)
+
+    # === 3. Proximité événements spéciaux ===
+    dataset['IS_PARADE_SOON'] = ((dataset['TIME_TO_PARADE_1'].between(-120, 120)) |
+                                 (dataset['TIME_TO_PARADE_2'].between(-120, 120))).astype(int)
+    dataset['IS_NIGHT_SHOW_SOON'] = (dataset['TIME_TO_NIGHT_SHOW'].between(-120, 120)).astype(int)
+
+    # === 4. Attractions (one-hot encoding direct) ===
+    dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
+    dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
+
+    # === 5. Capacités et pannes ===
+    dataset['CAPACITY_RATIO'] = dataset['CURRENT_WAIT_TIME'] / (dataset['ADJUST_CAPACITY'] + 1e-6)
+    dataset['CURRENT_WAIT_TIME'] = dataset['CURRENT_WAIT_TIME'] + dataset['DOWNTIME']
+
+    # === 6. Météo enrichie ===
+    dataset['IS_RAINING'] = (dataset['rain_1h'] > 0.2).astype(int)
+    dataset['IS_SNOWING'] = (dataset['snow_1h'] > 0.05).astype(int)
+    dataset['IS_HOT'] = (dataset['feels_like'] > 25).astype(int)
+    dataset['IS_COLD'] = (dataset['feels_like'] < 5).astype(int)
+    dataset['IS_BAD_WEATHER'] = ((dataset['rain_1h'] > 2) |
+                                 (dataset['snow_1h'] > 0.5) |
+                                 (dataset['wind_speed'] > 30)).astype(int)
+
+    # Interaction température-humidité (ressenti de lourdeur)
+    dataset['TEMP_HUMIDITY_INDEX'] = dataset['feels_like'] * dataset['humidity']
+    dataset.drop(columns=["temp",'humidity','pressure','rain_1h','snow_1h','TIME_TO_NIGHT_SHOW','HOUR','dew_point'], inplace=True)
+
+    # Appliquer la détection des vacances
+    vacances_data = dataset['DATETIME'].apply(detecter_vacances_par_zone)
+    vacances_df = pd.DataFrame(vacances_data.tolist(), index=dataset.index)
+    dataset = pd.concat([dataset, vacances_df], axis=1)
+
+    dataset['DATETIME'] = pd.to_datetime(dataset['DATETIME'])
 
     
 # -----------------------------------------------------
