@@ -85,13 +85,53 @@ def adapter_dataset(dataset):
     dataset['IS_BAD_WEATHER'] = ((dataset['rain_1h'] > 2) |
                                  (dataset['snow_1h'] > 0.5) |
                                  (dataset['wind_speed'] > 30)).astype(int)
+    
+     # Binarisation des attractions
+    dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
+    dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
+    dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
+
+    # Binarisation des mois 
+    dataset['IS_MONTH_January'] = np.where(dataset['MONTH'] == 1, 1, 0)
+    dataset['IS_MONTH_February'] = np.where(dataset['MONTH'] == 2, 1, 0)
+    dataset['IS_MONTH_March'] = np.where(dataset['MONTH'] == 3, 1, 0)
+    dataset['IS_MONTH_April'] = np.where(dataset['MONTH'] == 4, 1, 0)
+    dataset['IS_MONTH_May'] = np.where(dataset['MONTH'] == 5, 1, 0)
+    dataset['IS_MONTH_June'] = np.where(dataset['MONTH'] == 6, 1, 0)
+    dataset['IS_MONTH_July'] = np.where(dataset['MONTH'] == 7, 1, 0)
+    dataset['IS_MONTH_August'] = np.where(dataset['MONTH'] == 8, 1, 0)
+    dataset['IS_MONTH_September'] = np.where(dataset['MONTH'] == 9, 1, 0)       
+    dataset['IS_MONTH_October'] = np.where(dataset['MONTH'] == 10, 1, 0)
+    dataset['IS_MONTH_November'] = np.where(dataset['MONTH'] == 11, 1, 0)
+    dataset['IS_MONTH_December'] = np.where(dataset['MONTH'] == 12, 1, 0)
+
+    # Binarisation des jours de la semaine
+    dataset['IS_DAY_Monday'] = np.where(dataset['DAY_OF_WEEK'] == 0, 1, 0)
+    dataset['IS_DAY_Tuesday'] = np.where(dataset['DAY_OF_WEEK'] == 1, 1, 0)
+    dataset['IS_DAY_Wednesday'] = np.where(dataset['DAY_OF_WEEK'] == 2, 1, 0)
+    dataset['IS_DAY_Thursday'] = np.where(dataset['DAY_OF_WEEK'] == 3, 1, 0)
+    dataset['IS_DAY_Friday'] = np.where(dataset['DAY_OF_WEEK'] == 4, 1, 0)
+    dataset['IS_DAY_Saturday'] = np.where(dataset['DAY_OF_WEEK'] == 5, 1, 0)
+    dataset['IS_DAY_Sunday'] = np.where(dataset['DAY_OF_WEEK'] == 6, 1, 0)
+
+    # Binarisation des années
+    dataset['IS_YEAR_2019'] = np.where(dataset['YEAR'] == 2019, 1, 0)
+    dataset['IS_YEAR_2020'] = np.where(dataset['YEAR'] == 2020, 1, 0)
+    dataset['IS_YEAR_2021'] = np.where(dataset['YEAR'] == 2021, 1, 0)
+    dataset['IS_YEAR_2022'] = np.where(dataset['YEAR'] == 2022, 1, 0)
+
+    #supprimer les colonnes inutiles
+    dataset.drop(columns=['ENTITY_DESCRIPTION_SHORT'], inplace=True)
+    dataset.drop(columns=['HOUR'], inplace=True) # Garder HOUR_SIN et HOUR_COS
+    dataset.drop(columns=['DATETIME'], inplace=True)
+    dataset.drop(columns=['DAY_OF_WEEK'], inplace=True) # Garder les binarisations
+    dataset.drop(columns=['MONTH'], inplace=True) # Garder les binarisations
+    dataset.drop(columns=['YEAR'], inplace=True) # Garder les binarisations
+
 
     # Interaction température-humidité (ressenti de lourdeur)
     dataset['TEMP_HUMIDITY_INDEX'] = dataset['temp'] * dataset['humidity']
     dataset.drop(columns=["temp",'humidity','pressure'], inplace=True)
-
-
-
 
     
 # -----------------------------------------------------
