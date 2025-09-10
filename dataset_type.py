@@ -29,6 +29,13 @@ def adapt_data_paul_GX(dataset):
         (abs(dataset['TIME_TO_PARADE_1']) <= 500) | (abs(dataset['TIME_TO_PARADE_2']) <= 500),
         1, 0
     )
+
+    # Colonne weekend (1 si weekend, 0 si jour de semaine)
+    dataset['WEEKEND'] = np.where(dataset['DAY_OF_WEEK'] >= 5, 1, 0)
+
+    # Colonne POST_COVID (1 si après Mars 2020, 0 si avant)
+    dataset['POST_COVID'] = np.where(dataset['DATETIME'] >= '2020-03-01', 1, 0)
+    
     
     # Encodage cyclique de l'heure
     dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
@@ -364,6 +371,8 @@ def adapter_dataset_PREDPOSTcovid_VACANCE_PAOLO(dataset):
         (abs(dataset['TIME_TO_PARADE_1']) <= 500) | (abs(dataset['TIME_TO_PARADE_2']) <= 500),
         1, 0
     )
+
+
     
     # 5. Encodage cyclique de l'heure
     dataset['HOUR_SIN'] = np.sin(2 * np.pi * dataset['HOUR'] / 24)
