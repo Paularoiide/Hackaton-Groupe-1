@@ -192,7 +192,7 @@ def meilleur_modele_XGBoost(df, target = 'WAIT_TIME_IN_2H'):
     print("Feature Importance:")
     print(feature_importance)
     #On retourne la liste des features avec la plus grande importance : 10 features
-    return feature_importance.head(15).index.tolist()
+    return feature_importance.head(30).index.tolist()
 
 #On adapte le dataset
 adapter_dataset(datasetmeteo)
@@ -213,6 +213,6 @@ y_val_pred = predict_two_models(rf_pre, rf_post, features_pre, features_post, va
 
 # Ajouter dans val + exporter
 val['y_pred'] = y_val_pred
-val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("xgBoost_selection_separation.csv", index=False)
+val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("xgBoost_selection_separation_30.csv", index=False)
 
 
