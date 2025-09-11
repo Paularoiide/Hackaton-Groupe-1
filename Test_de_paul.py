@@ -76,6 +76,48 @@ def RMSE(x,y):
 
 #________________________________________________________________________________________
 
+from datetime import datetime
+
+def ajuster_proportion_exact(df1, df2):
+    ref_date = datetime(2020, 3, 1)
+
+    # Stats
+    n1 = len(df1)
+    post1 = (df1['DATETIME'] >= ref_date).sum()
+    pre1 = n1 - post1
+    prop1 = post1 / n1
+    prop2 = (df2['DATETIME'] >= ref_date).mean()
+
+    # Proportion cible = moyenne
+    target_prop = (prop1 + prop2) / 2
+
+    print(f"Proportion CSV1: {prop1:.3f}")
+    print(f"Proportion CSV2: {prop2:.3f}")
+    print(f"Proportion cible: {target_prop:.3f}")
+
+    df1_mod = df1.copy()
+
+    if prop1 > target_prop:
+        # Trop de post-COVID → on en enlève
+        x = int((post1 - target_prop * n1) / (1 - target_prop))
+        x = min(x, post1)
+        idx_remove = df1_mod[df1_mod['DATETIME'] >= ref_date].sample(x, random_state=42).index
+        df1_mod = df1_mod.drop(idx_remove)
+
+    elif prop1 < target_prop:
+        # Trop de pre-COVID → on en enlève
+        x = int(n1 - (post1 / target_prop))
+        x = min(x, pre1)
+        idx_remove = df1_mod[df1_mod['DATETIME'] < ref_date].sample(x, random_state=42).index
+        df1_mod = df1_mod.drop(idx_remove)
+
+    new_prop = (df1_mod['DATETIME'] >= ref_date).mean()
+    print(f"Nouvelle proportion CSV1: {new_prop:.3f}")
+
+    return df1_mod.reset_index(drop=True)
+
+
+
 def adapt_data_paul_GX(dataset):
     # Faire une copie pour éviter les modifications sur l'original
     dataset = dataset.copy()
@@ -114,6 +156,8 @@ def adapt_data_paul_GX(dataset):
     dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
     dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
     dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
+    
+
     
     # Fonction pour détecter les vacances scolaires par zone
     def detecter_vacances_par_zone(date):
@@ -612,10 +656,14 @@ if __name__ == "__main__":
 
 
     df = pd.read_csv("weather_data_combined.csv")
-    df = adapt_data_paul_GX(df) # Entraîner plusieurs modèles avec params prometteurs 
-    models, features = train_promising_models(df, n_seeds=4)  #Validation externe
+    df = adapt_data_paul_GX(df) # Entraîner plusieurs modèles avec params prometteurs
     val = pd.read_csv("valmeteo.csv") 
     val = adapt_data_paul_GX(val)
+
+    df = ajuster_proportion_exact(df,val)
+
+    models, features = train_promising_models(df, n_seeds=4)  #Validation externe
+
     # Prédictions avec ensemble complet 
     y_val_pred, _ = predict_multiple_models(models, features, val) # Export CSV 
     val['y_pred'] = y_val_pred 
