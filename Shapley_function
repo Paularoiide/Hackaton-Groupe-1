@@ -1,39 +1,63 @@
-def CalculShapley(rf_pre, df_pre, features, rf_post, df_post, sample_size_pre=100, sample_size_post=100):
+def CalculShapley1(rf_pre, df_pre, features, rf_post, df_post,
+                  sample_size_pre=100, sample_size_post=100,
+                  exclusion_threshold=0.01):
     import shap
     import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
 
-    # S'assurer que les features existent
-    df_pre = df_pre.copy()
-    df_post = df_post.copy()
+    # Préparation des données
+    df_pre = df_pre[features].dropna().copy()
+    df_post = df_post[features].dropna().copy()
     
-    df_pre = df_pre[features].dropna()
-    df_post = df_post[features].dropna()
-    
-    # Échantillons aléatoires pour accélérer le calcul
-    if sample_size_pre < len(df_pre):
-        sample_df_pre = df_pre.sample(sample_size_pre, random_state=42)
-    else:
-        sample_df_pre = df_pre.copy()
+    sample_df_pre = df_pre.sample(min(sample_size_pre, len(df_pre)), random_state=42)
+    sample_df_post = df_post.sample(min(sample_size_post, len(df_post)), random_state=42)
 
-    if sample_size_post < len(df_post):
-        sample_df_post = df_post.sample(sample_size_post, random_state=42)
-    else:
-        sample_df_post = df_post.copy()
-
-    # Assurer les types corrects
-    sample_df_pre = sample_df_pre.astype(df_pre.dtypes.to_dict())
-    sample_df_post = sample_df_post.astype(df_post.dtypes.to_dict())
-
-    # Explainers rapides pour Random Forest
+    # Explainers
     explainer_pre = shap.TreeExplainer(rf_pre, model_output="raw")
     explainer_post = shap.TreeExplainer(rf_post, model_output="raw")
 
-    # Calcul des valeurs SHAP
     shap_values_pre = explainer_pre.shap_values(sample_df_pre)
     shap_values_post = explainer_post.shap_values(sample_df_post)
 
-    # Affichage summary plot
-    print("📊 SHAP Summary - Pré-COVID")
+    # Importance absolue moyenne
+    mean_abs_pre = np.mean(np.abs(shap_values_pre), axis=0)
+    mean_abs_post = np.mean(np.abs(shap_values_post), axis=0)
+
+    # Normalisation en %
+    mean_abs_pre_pct = mean_abs_pre / mean_abs_pre.sum()
+    mean_abs_post_pct = mean_abs_post / mean_abs_post.sum()
+
+    # DataFrame récap
+    df_importance = pd.DataFrame({
+        "Feature": features,
+        "SHAP_PreCOVID": mean_abs_pre,
+        "SHAP_PostCOVID": mean_abs_post,
+        "PreCOVID_%": mean_abs_pre_pct,
+        "PostCOVID_%": mean_abs_post_pct,
+        "Delta": mean_abs_post - mean_abs_pre
+    }).sort_values("PostCOVID_%", ascending=False).reset_index(drop=True)
+
+    # Déterminer les features candidates à exclure
+    to_exclude = df_importance.loc[
+        (df_importance["PreCOVID_%"] < exclusion_threshold) &
+        (df_importance["PostCOVID_%"] < exclusion_threshold),
+        "Feature"
+    ].tolist()
+
+    # --- Impression des résultats numériques ---
+    print("\n📌 Importances SHAP (valeurs exactes) :")
+    print(df_importance.round(4))
+
+    if to_exclude:
+        print("\n🗑️ Paramètres candidats à exclure (importance < {:.1%} en pré et post) :".format(exclusion_threshold))
+        for f in to_exclude:
+            print(f" - {f}")
+    else:
+        print("\n✅ Aucune variable ne satisfait le critère d’exclusion.")
+
+    # Graphiques classiques SHAP
+    print("\n📊 SHAP Summary - Pré-COVID")
     shap.summary_plot(shap_values_pre, sample_df_pre, feature_names=features, show=True)
     plt.show()
 
@@ -41,4 +65,4 @@ def CalculShapley(rf_pre, df_pre, features, rf_post, df_post, sample_size_pre=10
     shap.summary_plot(shap_values_post, sample_df_post, feature_names=features, show=True)
     plt.show()
 
-    return shap_values_pre, shap_values_post
+    return df_importance, to_exclude
