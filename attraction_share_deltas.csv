@@ -1,0 +1,4 @@
+ENTITY_DESCRIPTION_SHORT,MaxDiff(Train-Val),MaxDiff(Train-Test),MaxDiff(Val-Test)
+Pirate Ship,0.03633,0.04942,0.01309
+Flying Coaster,0.03282,0.03323,0.00041
+Water Ride,0.00351,0.01620,0.01268

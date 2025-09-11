@@ -1,3 +1,47 @@
+import pandas as pd
+from datetime import datetime
+# en gros tu mets en 1 le fichier que tu veux modifier, en 2 le fichier reference
+
+def ajuster_proportion_simple(csv1_path, csv2_path):
+    """
+    Version simplifiée pour ajuster les proportions
+    """
+    # Charger les données
+    df1 = pd.read_csv(csv1_path)
+    df2 = pd.read_csv(csv2_path)
+    
+    # Date de référence
+    ref_date = datetime(2020, 3, 1)
+    
+    # Calculer les proportions
+    prop1 = (df1['DATETIME'] >= ref_date).mean()
+    prop2 = (df2['DATETIME'] >= ref_date).mean()
+    
+    print(f"Proportion CSV1: {prop1:.3f}")
+    print(f"Proportion CSV2: {prop2:.3f}")
+    
+    # Créer une copie pour ne pas modifier l'original
+    df1_modified = df1.copy()
+    
+    # Si CSV1 a plus de données récentes que CSV2, on en supprime
+    if prop1 > prop2:
+        recent_data = df1_modified[df1_modified['DATETIME'] >= ref_date]
+        to_remove = int(len(recent_data) * (prop1 - prop2) / prop1)
+        
+        # Sélection aléatoire des lignes à supprimer
+        indices_to_remove = recent_data.sample(to_remove, random_state=42).index
+        df1_modified = df1_modified.drop(indices_to_remove)
+    
+    # Calculer la nouvelle proportion
+    new_prop = (df1_modified['DATETIME'] >= ref_date).mean()
+    print(f"Nouvelle proportion CSV1: {new_prop:.3f}")
+    
+    return df1_modified
+
+
+
+
+
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
@@ -22,101 +66,64 @@ from datetime import date
 import shap
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier
-
-# Put the dataset into a pandas DataFrame
+from sklearn.ensemble import RandomForestRegressor, StackingRegressor
+import lightgbm as lgb
+import catboost as cb
+import xgboost as xgb
+from copy import deepcopy
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import KFold, TimeSeriesSplit
+from sklearn.metrics import mean_squared_error
+from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
+import xgboost as xgb
+from sklearn.metrics import mean_squared_error
 
 valsetsansmeteo = pd.read_table('waiting_times_X_test_val.csv', sep=',', decimal='.')
 valsetmeteo = pd.read_table('valmeteo.csv', sep=',', decimal='.')
 datasetmeteo = pd.read_table('weather_data_combined.csv', sep=',', decimal='.')
 datasetsansmeteo = pd.read_table('waiting_times_train.csv', sep=',', decimal='.')
 
-def AIC(X, predictors, y):
-# AIC and BIC based stepwise forward selection
-    selected_predictors = ['const'] # Start with only the intercept
-    unselected_predictors = predictors.copy()
-    X = sm.add_constant(X)  # Ajoute une constante si elle n'existe pas déjà
 
-    # Compute the Information Criterion (IC) for the model with only the intercept
-    current_ic = sm.OLS(y, X[selected_predictors]).fit().aic # AIC
+def compute_time_weights(train, val, freq="M"):
+    """
+    Calcule des poids pour aligner la distribution temporelle du train
+    sur celle du val/test. 
+    freq : "M" pour mensuel, "Q" pour trimestriel
+    """
+    # S'assurer que DATETIME est bien en datetime
+    train = train.copy()
+    val = val.copy()
+    train["DATETIME"] = pd.to_datetime(train["DATETIME"])
+    val["DATETIME"] = pd.to_datetime(val["DATETIME"])
+    
+    # Comptages normalisés par période
+    train_counts = train.resample(freq, on="DATETIME").size()
+    val_counts = val.resample(freq, on="DATETIME").size()
+    
+    train_dist = train_counts / train_counts.sum()
+    val_dist = val_counts / val_counts.sum()
+    
+    # Ratio val/train = poids relatifs
+    ratios = (val_dist / train_dist).replace([np.inf, np.nan], 0)
+    
+    # Appliquer ratio à chaque ligne
+    weights = train["DATETIME"].dt.to_period(freq).map(ratios)
+    
+    return weights.fillna(0.01).values
 
-    ic_values = [current_ic]  # Store successive IC values
 
-    # Stepwise forward selection based on minimizing IC
-    while len(unselected_predictors)>0:
-        best_ic = np.inf  # Initialize with a very high IC
-        best_predictor = None
+def assign_era(dt):
+    if dt < pd.to_datetime("2020-03-01"):
+        return 0  # Pré-COVID
+    elif dt < pd.to_datetime("2021-01-01"):
+        return 1  # COVID strict
+    else:
+        return 2  # Post-COVID (réouverture)
 
-        # Try adding each unselected predictor one by one
-        for pred in unselected_predictors:
-            test_model = sm.OLS(y, X[selected_predictors + [pred]]).fit()
-            test_ic = test_model.aic # AIC
-
-            # Check if this predictor gives the lowest IC so far
-            if test_ic < best_ic:
-                best_ic = test_ic
-                best_predictor = pred
-
-        # If the best IC is lower than the current IC, accept the predictor
-        if best_ic < current_ic:
-            selected_predictors.append(best_predictor)
-            unselected_predictors.remove(best_predictor)
-            ic_values.append(best_ic)
-            current_ic = best_ic  # Update current IC
-        else:
-            break  # Stop if no improvement
-
-    # Print results
-    print("Selected predictors:", selected_predictors)
-    print("IC values over iterations:", ic_values)
-    return selected_predictors, ic_values
 
 def RMSE(x,y):
   return np.sqrt(mean_squared_error(x,y))
-
-
-#________________________________________________________________________________________
-
-from datetime import datetime
-
-def ajuster_proportion_exact(df1, df2):
-    ref_date = datetime(2020, 3, 1)
-
-    # Stats
-    n1 = len(df1)
-    post1 = (df1['DATETIME'] >= ref_date).sum()
-    pre1 = n1 - post1
-    prop1 = post1 / n1
-    prop2 = (df2['DATETIME'] >= ref_date).mean()
-
-    # Proportion cible = moyenne
-    target_prop = (prop1 + prop2) / 2
-
-    print(f"Proportion CSV1: {prop1:.3f}")
-    print(f"Proportion CSV2: {prop2:.3f}")
-    print(f"Proportion cible: {target_prop:.3f}")
-
-    df1_mod = df1.copy()
-
-    if prop1 > target_prop:
-        # Trop de post-COVID → on en enlève
-        x = int((post1 - target_prop * n1) / (1 - target_prop))
-        x = min(x, post1)
-        idx_remove = df1_mod[df1_mod['DATETIME'] >= ref_date].sample(x, random_state=42).index
-        df1_mod = df1_mod.drop(idx_remove)
-
-    elif prop1 < target_prop:
-        # Trop de pre-COVID → on en enlève
-        x = int(n1 - (post1 / target_prop))
-        x = min(x, pre1)
-        idx_remove = df1_mod[df1_mod['DATETIME'] < ref_date].sample(x, random_state=42).index
-        df1_mod = df1_mod.drop(idx_remove)
-
-    new_prop = (df1_mod['DATETIME'] >= ref_date).mean()
-    print(f"Nouvelle proportion CSV1: {new_prop:.3f}")
-
-    return df1_mod.reset_index(drop=True)
-
-
 
 def adapt_data_paul_GX(dataset):
     # Faire une copie pour éviter les modifications sur l'original
@@ -145,19 +152,17 @@ def adapt_data_paul_GX(dataset):
     dataset['HOUR'] = dataset['DATETIME'].dt.hour
     dataset['MINUTE'] = dataset['DATETIME'].dt.minute
 
-    
+
     # Colonne weekend (1 si weekend, 0 si jour de semaine)
     dataset['WEEKEND'] = np.where(dataset['DAY_OF_WEEK'] >= 5, 1, 0)
 
     # Colonne POST_COVID (1 si après Mars 2020, 0 si avant)
-    dataset['POST_COVID'] = np.where(dataset['DATETIME'] >= '2020-03-01', 1, 0)
-    
+    #dataset['POST_COVID'] = np.where(dataset['DATETIME'] >= '2020-03-01', 1, 0)
+    dataset["ERA"] = dataset["DATETIME"].apply(assign_era)
     # Binarisation des attractions
     dataset['IS_ATTRACTION_Water_Ride'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Water Ride", 1, 0)
     dataset['IS_ATTRACTION_Pirate_Ship'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Pirate Ship", 1, 0)
     dataset['IS_ATTRACTION__Flying_Coaster'] = np.where(dataset['ENTITY_DESCRIPTION_SHORT'] == "Flying Coaster", 1, 0)
-    
-
     
     # Fonction pour détecter les vacances scolaires par zone
     def detecter_vacances_par_zone(date):
@@ -279,394 +284,176 @@ def adapt_data_paul_GX(dataset):
     
     return dataset
 
-#________________________________________________________________________________________
-# -----------------------------------------------------
-# 2. Split pré/post Covid
-# -----------------------------------------------------
-def split_pre_post(df, covid_date="2020-03-15"):
-    df_pre = df[df['DATETIME'] < covid_date].copy()
-    df_post = df[df['DATETIME'] >= covid_date].copy()
-    return df_pre, df_post
 
-def train_and_feature_importance(df, target="WAIT_TIME_IN_2H", title=""):
-    features = [c for c in df.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
-    X, y = df[features], df[target]
+# ---------- helpers ----------
+def rmse(y_true, y_pred):
+    return np.sqrt(mean_squared_error(y_true, y_pred))
 
-    # split train/test interne
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+def round_to_5_floor(a):
+    return (np.floor(a / 5) * 5).astype(int)
 
-    model = xgb.XGBRegressor(
-        n_estimators=500,
-        max_depth=6,
-        learning_rate=0.1,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        n_jobs=-1
-    )
-    model.fit(X_train, y_train)
-
-    y_pred = model.predict(X_test)
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-    print(f"RMSE {title} :", rmse)
-
-    # importance
-    importances = model.feature_importances_
-    feat_importances = pd.DataFrame({
-        "Feature": features,
-        "Importance": importances
-    }).sort_values("Importance", ascending=False)
-
-    print(f"\nTop 15 features {title}:\n", feat_importances.head(15))
-
-    plt.figure(figsize=(8, 6))
-    plt.barh(feat_importances["Feature"][:15][::-1], feat_importances["Importance"][:15][::-1])
-    plt.title(f"Top 15 Features - {title}")
-    plt.xlabel("Importance")
-    plt.tight_layout()
-    plt.show()
-
-    return model, features, rmse, feat_importances, X_train, X_test, y_train, y_test
-
-def train_two_models(df_pre, df_post, target="WAIT_TIME_IN_2H"):
-    features = [col for col in df_pre.columns if col not in [target, 'DATETIME', 'ENTITY_DESCRIPTION_SHORT']]
-
-    X_pre, y_pre = df_pre[features], df_pre[target]
-    X_post, y_post = df_post[features], df_post[target]
-
-    model_pre = xgb.XGBRegressor(
-        n_estimators=500,
-        max_depth=6,
-        learning_rate=0.1,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        n_jobs=-1
-    )
-    model_post = xgb.XGBRegressor(
-        n_estimators=500,
-        max_depth=6,
-        learning_rate=0.1,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        n_jobs=-1
-    )
-
-    model_pre.fit(X_pre, y_pre)
-    model_post.fit(X_post, y_post)
-
-    return model_pre, model_post, features
-
-def predict_two_models(model_pre, model_post, features, df, covid_date="2020-03-15"):
-    df = df.copy()
-    df['DATETIME'] = pd.to_datetime(df['DATETIME'])
-
-    mask_pre = df['DATETIME'] < covid_date
-    mask_post = df['DATETIME'] >= covid_date
-
-    preds = np.zeros(len(df))
-
-    if mask_pre.any():
-        preds[mask_pre] = model_pre.predict(df.loc[mask_pre, features])
-    if mask_post.any():
-        preds[mask_post] = model_post.predict(df.loc[mask_post, features])
-
-    return preds
-
-def get_sample(df, frac=0.3, random_state=42):
+def build_xgb_models(xgb_sets, seeds=(42,133)):
     """
-    Retourne un sous-échantillon fixe du dataset.
-    Utile pour tester rapidement différentes combinaisons de features.
-
-    Args:
-        df (pd.DataFrame): ton dataset complet
-        frac (float): proportion du dataset à garder (0 < frac <= 1)
-        random_state (int): graine pour la reproductibilité
-
-    Returns:
-        pd.DataFrame: sous-échantillon du dataset
+    Construit une liste [(name, model), ...] à partir d'une liste de dicts de params et de seeds.
     """
-    return df.sample(frac=frac, random_state=random_state).reset_index(drop=True)
-
-def eval_on_sample(df, target="WAIT_TIME_IN_2H", frac=0.3, random_state=42):
-    """
-    Prend un sous-échantillon fixe du dataset et entraîne un XGBRegressor.
-    Retourne le RMSE pour évaluer rapidement les performances.
-    """
-    # Sous-échantillonnage
-    df_sample = df.sample(frac=frac, random_state=random_state).reset_index(drop=True)
-
-    # Séparation features / target
-    features = [c for c in df_sample.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
-    X, y = df_sample[features], df_sample[target]
-
-    # Split train/test
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=0.2, random_state=random_state
-    )
-
-    # Modèle XGBoost simple
-    model = xgb.XGBRegressor(
-        n_estimators=300,
-        max_depth=6,
-        learning_rate=0.1,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=random_state,
-        n_jobs=-1
-    )
-    model.fit(X_train, y_train)
-
-    # Prédictions
-    y_pred = model.predict(X_val)
-
-    # Calcul du RMSE
-    rmse = np.sqrt(mean_squared_error(y_val, y_pred))
-    print(f"✅ RMSE sur {int(frac*100)}% du dataset :", rmse)
-
-    return model, features, rmse, df_sample
-
-def train_promising_models_classifier(df, target="WAIT_TIME_IN_2H", n_seeds=3):
-    # Transformer la cible en classes (par tranches de 5 minutes)
-    df = df.copy()
-    df["WAIT_CLASS"] = (df[target] / 5).round().astype(int)
-
-    # Encodage pour avoir des classes continues 0..N
-    le = LabelEncoder()
-    y = le.fit_transform(df["WAIT_CLASS"])
-
-    features = [c for c in df.columns if c not in [target, "WAIT_CLASS", "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
-    X = df[features]
-
-    # Paramètres prometteurs
-    param_list = [
-        {'subsample': 1.0, 'n_estimators': 800, 'max_depth': 6, 'learning_rate': 0.1, 'colsample_bytree': 0.8},
-        {'subsample': 0.7, 'n_estimators': 600, 'max_depth': 8, 'learning_rate': 0.1, 'colsample_bytree': 0.9},
-        {'subsample': 0.7, 'n_estimators': 800, 'max_depth': 5, 'learning_rate': 0.05, 'colsample_bytree': 0.7},
-    ]
-
     models = []
-    for i, params in enumerate(param_list):
-        for seed in range(n_seeds):
-            model = XGBClassifier(
-                objective="multi:softmax",
-                num_class=len(le.classes_),  # nb exact de classes après encodage
-                random_state=42 + seed,
-                n_jobs=-1,
+    for i, params in enumerate(xgb_sets):
+        for s in seeds:
+            name = f"xgb_{i}_seed{s}"
+            mdl = xgb.XGBRegressor(
+                random_state=s, n_jobs=-1, tree_method="hist",
+                objective="reg:squarederror", eval_metric="rmse",
                 **params
             )
-            model.fit(X, y)
-            models.append((model, le))  # on stocke aussi le LabelEncoder
-            print(f"✅ Classifieur {len(models)} entraîné avec params {params} (seed={42+seed})")
+            models.append((name, mdl))
+    return models
 
-    return models, features
-
-from sklearn.ensemble import ExtraTreesRegressor
-
-def train_promising_models(df, target="WAIT_TIME_IN_2H", n_seeds=2):
-    features = [c for c in df.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
-    X, y = df[features], df[target]
-
-    # On adapte les paramètres pour ExtraTrees
-    param_list = [
-        {'n_estimators': 800, 'max_depth': 6, 'max_features': 0.8},
-        {'n_estimators': 600, 'max_depth': 8, 'max_features': 0.9},
-        {'n_estimators': 800, 'max_depth': 5, 'max_features': 0.7},
-        {'n_estimators': 200, 'max_depth': 10, 'max_features': 0.8},
-        {'n_estimators': 600, 'max_depth': 7, 'max_features': 1.0},
-        {'n_estimators': 1000, 'max_depth': 9, 'max_features': 0.9},
-        {'n_estimators': 400, 'max_depth': 4, 'max_features': 0.7},
-        {'n_estimators': 700, 'max_depth': 7, 'max_features': 0.85},
-        {'n_estimators': 500, 'max_depth': 6, 'max_features': 0.9},
-        {'n_estimators': 900, 'max_depth': 8, 'max_features': 1.0}
-    ]
-
-    models = []
-    for i, params in enumerate(param_list):
-        for seed in range(n_seeds):
-            model = ExtraTreesRegressor(
-                random_state=42 + seed,
-                n_jobs=-1,
-                **params
-            )
-            model.fit(X, y)
-            models.append(model)
-            print(f"✅ Modèle {len(models)} entraîné avec params {params} (seed={42+seed})")
-
-    return models, features
-
-
-def predict_multiple_models_classifier(models, features, df):
+def get_oof_matrix(models, X, y, n_splits=5, random_state=42):
     """
-    Prédit avec plusieurs classifieurs, moyenne les classes encodées,
-    puis reconvertit en minutes (classe originale * 5).
+    Calcule la matrice OOF des prédictions des modèles.
+    Retourne: (oof_preds: [n_samples, n_models], per_model_rmse: [n_models], fitted_full_models: [(name, fitted_model), ...])
     """
-    preds = np.zeros((len(df), len(models)))
-    
-    for i, (model, le) in enumerate(models):
-        preds[:, i] = model.predict(df[features])
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    n_samples, n_models = X.shape[0], len(models)
+    oof = np.zeros((n_samples, n_models), dtype=float)
 
-    # Moyenne des classes encodées
-    class_pred_encoded = np.rint(preds.mean(axis=1)).astype(int)
+    # Fit/preds OOF
+    for m_idx, (name, mdl_proto) in enumerate(models):
+        preds = np.zeros(n_samples, dtype=float)
+        for tr_idx, va_idx in kf.split(X, y):
+            mdl = deepcopy(mdl_proto)
+            mdl.fit(X[tr_idx], y[tr_idx])
+            preds[va_idx] = mdl.predict(X[va_idx])
+        oof[:, m_idx] = preds
 
-    # Décodage vers WAIT_CLASS original
-    class_pred = models[0][1].inverse_transform(class_pred_encoded)
+    per_model_rmse = np.array([rmse(y, oof[:, j]) for j in range(n_models)])
 
-    # Conversion en minutes
-    return class_pred * 5, preds
+    # Refit sur tout le train (pour servir en prédiction finale)
+    fitted_full = []
+    for name, mdl_proto in models:
+        mdl = deepcopy(mdl_proto)
+        mdl.fit(X, y)
+        fitted_full.append((name, mdl))
 
+    return oof, per_model_rmse, fitted_full
 
-def predict_hybrid(models_reg, models_clf, features, df, alpha=0.7):
+def nnls_like_weights(P, y):
     """
-    Combine régression et classification avec une moyenne pondérée.
-    alpha : poids du regressor (0.0 = seulement classifier, 1.0 = seulement regressor)
+    Approx NNLS simple: moindres carrés puis projection dans le simplex (>=0, somme=1).
+    P: [n_samples, n_models], y: [n_samples]
     """
-    # --- Régression ---
-    y_pred_reg, _ = predict_multiple_models(models_reg, features, df)
+    # moindres carrés
+    w, *_ = np.linalg.lstsq(P, y, rcond=None)
+    # >= 0
+    w = np.maximum(w, 0)
+    # éviter tout zéro
+    if w.sum() == 0:
+        w = np.ones_like(w) / len(w)
+    else:
+        w = w / w.sum()
+    return w
 
-    # --- Classification ---
-    y_pred_clf, _ = predict_multiple_models_classifier(models_clf, features, df)
-
-    # --- Hybrid ---
-    y_pred_hybrid = alpha * y_pred_reg + (1 - alpha) * y_pred_clf
-
-    # --- Arrondi au multiple de 5 ---
-    y_pred_hybrid = (np.round(y_pred_hybrid / 5) * 5).astype(int)
-
-    return y_pred_hybrid, y_pred_reg, y_pred_clf
-
-
-def predict_multiple_models(models, features, df):
+def greedy_subset_selection(oof, y, max_models=6, verbose=True):
     """
-    Prend la moyenne des prédictions de plusieurs modèles
-    Retourne : (prédictions moyennes, prédictions individuelles)
+    Sélection gloutonne d'un sous-ensemble de modèles qui minimise le RMSE OOF de la combinaison (poids appris par NNLS-like).
+    Retourne: idx_list (indices retenus), weights (poids sur ce sous-ensemble), rmse_best
     """
-    preds = np.zeros((len(df), len(models)))
-    for i, model in enumerate(models):
-        preds[:, i] = model.predict(df[features])
-    return preds.mean(axis=1), preds
+    n_models = oof.shape[1]
+    remaining = set(range(n_models))
+    chosen = []
+    best_rmse = np.inf
+    best_weights = None
 
+    while len(chosen) < max_models and remaining:
+        improved = False
+        candidate_best = None
+        candidate_weights = None
+        candidate_rmse = None
 
-def tune_xgb_random(X, y, n_iter=30):
-    param_dist = {
-        "max_depth": [3, 4, 5, 6, 7, 8],
-        "learning_rate": [0.01, 0.05, 0.1, 0.2],
-        "n_estimators": [200, 400, 600, 800],
-        "subsample": [0.7, 0.8, 0.9, 1.0],
-        "colsample_bytree": [0.7, 0.8, 0.9, 1.0],
-        "gamma": [0, 1, 5]
-    }
+        for j in list(remaining):
+            idx_try = chosen + [j]
+            P = oof[:, idx_try]
+            w = nnls_like_weights(P, y)
+            y_hat = P.dot(w)
+            r = rmse(y, y_hat)
+            if r < best_rmse - 1e-6:
+                improved = True
+                candidate_best = j
+                candidate_rmse = r
+                candidate_weights = w
 
-    model = xgb.XGBRegressor(random_state=42, n_jobs=-1)
+        if improved:
+            chosen.append(candidate_best)
+            remaining.remove(candidate_best)
+            best_rmse = candidate_rmse
+            best_weights = candidate_weights
+            if verbose:
+                print(f"➕ Ajout modèle {candidate_best} | OOF RMSE={best_rmse:.4f} | k={len(chosen)}")
+        else:
+            break
 
-    search = RandomizedSearchCV(
-        estimator=model,
-        param_distributions=param_dist,
-        n_iter=n_iter,   # 👈 paramètre passé ici
-        scoring="neg_root_mean_squared_error",
-        cv=3,
-        verbose=2,
-        n_jobs=-1,
-        random_state=42
-    )
+    return chosen, best_weights, best_rmse
 
-    search.fit(X, y)
-    print("✅ Best parameters:", search.best_params_)
-    print("✅ Best score (RMSE):", -search.best_score_)
-
-    return search.best_estimator_
-
-def tune_xgb_random_topn(X, y, n_iter=50, top_n=5):
+def predict_ensemble(fitted_models, selected_idx, weights, X):
     """
-    Lance RandomizedSearchCV, récupère les top_n meilleurs params,
-    entraîne un modèle pour chacun et retourne modèles + poids.
+    Combine les modèles sélectionnés avec les poids appris.
     """
-    param_dist = {
-        "max_depth": [3, 4, 5, 6, 7, 8, 10],
-        "learning_rate": [0.01, 0.05, 0.1, 0.2],
-        "n_estimators": [200, 400, 600, 800, 1000],
-        "subsample": [0.7, 0.8, 0.9, 1.0],
-        "colsample_bytree": [0.7, 0.8, 0.9, 1.0],
-        "gamma": [0, 1, 5]
-    }
+    preds_mat = []
+    for k, (name, mdl) in enumerate(fitted_models):
+        if k in selected_idx:
+            preds_mat.append(mdl.predict(X))
+    P = np.column_stack(preds_mat)  # [n_samples, k]
+    return P.dot(weights)
 
-    base_model = xgb.XGBRegressor(random_state=42, n_jobs=-1)
+# 1) Prépare les données
+df = pd.read_csv("weather_data_combined.csv")
+df = adapt_data_paul_GX(df)  # ta fonction d’ingénierie
+features = [c for c in df.columns if c not in ["WAIT_TIME_IN_2H", "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
+X = df[features].values
+y = df["WAIT_TIME_IN_2H"].values
 
-    search = RandomizedSearchCV(
-        estimator=base_model,
-        param_distributions=param_dist,
-        n_iter=n_iter,
-        scoring="neg_root_mean_squared_error",
-        cv=3,
-        verbose=1,
-        n_jobs=-1,
-        random_state=42,
-        return_train_score=True
-    )
+# 2) Construis les modèles à partir de tes configs
+#    (utilise EXACTEMENT ton format xgb_sets existant)
+xgb_sets = [
+    # --- Autour de B : depth 6, réglages fins ---
+    {"n_estimators": 1000, "learning_rate": 0.09, "max_depth": 6, "min_child_weight": 3, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 1.0},
+    {"n_estimators": 1100, "learning_rate": 0.08, "max_depth": 6, "min_child_weight": 3, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 0.5, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1200, "learning_rate": 0.07, "max_depth": 6, "min_child_weight": 4, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1300, "learning_rate": 0.06, "max_depth": 6, "min_child_weight": 5, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 1.0, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 900,  "learning_rate": 0.10, "max_depth": 6, "min_child_weight": 4, "subsample": 0.85, "colsample_bytree": 0.90, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 1.0},
+    {"n_estimators": 1000, "learning_rate": 0.10, "max_depth": 6, "min_child_weight": 5, "subsample": 0.85, "colsample_bytree": 0.85, "gamma": 0.5, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1200, "learning_rate": 0.08, "max_depth": 6, "min_child_weight": 6, "subsample": 0.95, "colsample_bytree": 0.90, "gamma": 0.5, "reg_alpha": 0.0,   "reg_lambda": 3.0},
+    {"n_estimators": 1400, "learning_rate": 0.07, "max_depth": 6, "min_child_weight": 4, "subsample": 0.85, "colsample_bytree": 0.95, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1600, "learning_rate": 0.05, "max_depth": 6, "min_child_weight": 3, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1500, "learning_rate": 0.06, "max_depth": 6, "min_child_weight": 5, "subsample": 0.95, "colsample_bytree": 0.85, "gamma": 0.5, "reg_alpha": 0.0,   "reg_lambda": 3.0},
+]
+models = build_xgb_models(xgb_sets, seeds=(42,133))  # 2 seeds → robuste
 
-    search.fit(X, y)
+# 3) OOF + sélection gloutonne + poids
+oof, per_rmse, fitted_full = get_oof_matrix(models, X, y, n_splits=5, random_state=42)
+print("RMSE OOF par modèle :", per_rmse.round(4))
 
-    results = pd.DataFrame(search.cv_results_)
-    results["rmse"] = -results["mean_test_score"]
-    results = results.sort_values("rmse")
+# sélection d'un sous-ensemble de taille max (ex: 6 modèles)
+idx_sel, w_sel, oof_rmse = greedy_subset_selection(oof, y, max_models=6, verbose=True)
+print("Indices retenus :", idx_sel)
+print("Poids retenus   :", np.round(w_sel, 4))
+print("OOF RMSE blend  :", round(oof_rmse, 4))
 
-    print("✅ Meilleurs paramètres trouvés :")
-    print(results[["params", "rmse"]].head(top_n))
+# 4) Validation externe
+val = pd.read_csv("valmeteo.csv")
+val = adapt_data_paul_GX(val)
+X_val = val[features].values
 
-    models = []
-    weights = []
+# Prédiction ensemble sélectionné
+y_val_pred = predict_ensemble(fitted_full, idx_sel, w_sel, X_val)
 
-    for i in range(top_n):
-        params = results.iloc[i]["params"]
-        rmse = results.iloc[i]["rmse"]
+# Post-traitement (clips + arrondi multiples de 5 vers le bas)
+y_val_pred = np.clip(y_val_pred, 0, 180)
+y_val_pred = round_to_5_floor(y_val_pred)
 
-        model = xgb.XGBRegressor(random_state=42+i, n_jobs=-1, **params)
-        model.fit(X, y)
+val["y_pred"] = y_val_pred
+val[["DATETIME","ENTITY_DESCRIPTION_SHORT","y_pred"]].assign(KEY="Validation")\
+   .to_csv("val_predictions_xgb_subset_blend.csv", index=False)
 
-        models.append(model)
-        weights.append(1 / rmse)  # poids inverse du RMSE
-
-    return models, weights
-
-
-# -----------------------------
-# 2. Prédictions moyennées
-# -----------------------------
-def ensemble_predict(models, weights, X):
-    preds = np.zeros((len(X), len(models)))
-    for i, model in enumerate(models):
-        preds[:, i] = model.predict(X)
-    weights = np.array(weights) / np.sum(weights)
-    return np.dot(preds, weights)
-
-# -----------------------------------------------------
-# 5. Main pipeline
-# -----------------------------------------------------
-
-
-if __name__ == "__main__":
-
-  # Charger dataset complet
-    df = pd.read_csv("weather_data_combined.csv")
-    df = adapt_data_paul_GX(df)
-
-    val = pd.read_csv("valmeteo.csv") 
-    val = adapt_data_paul_GX(val)
-
-
-    # Compare distributions train vs val
-    cols = ["WAIT_TIME_IN_2H", "feels_like", "ADJUST_CAPACITY", "rain_1h"]
-    for c in cols:
-        plt.figure()
-        sns.kdeplot(df[c], label="train")
-        sns.kdeplot(val[c], label="val")
-        plt.title(c)
-        plt.legend()
-        plt.show()
-
-    # Relation WAIT_TIME vs HOUR
-    sns.lineplot(data=df, x="HOUR", y="WAIT_TIME_IN_2H", label="train")
-    sns.lineplot(data=val, x="HOUR", y="WAIT_TIME_IN_2H", label="val")
-    plt.show()
+print("✅ Écrit : val_predictions_xgb_subset_blend.csv")
 

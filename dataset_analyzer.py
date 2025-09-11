@@ -112,6 +112,32 @@ def compute_time_weights(train, val, freq="M"):
     
     return weights.fillna(0.01).values
 
+def compute_attraction_weights(train, val_dist=None):
+    # distribution observée dans le train
+    train_dist = train["ENTITY_DESCRIPTION_SHORT"].value_counts(normalize=True)
+
+    if val_dist is None:
+        return {k: 1.0 for k in train_dist.index}
+
+    # distribution cible (val/test)
+    target_dist = val_dist.set_index("ENTITY_DESCRIPTION_SHORT")["Target"]
+
+    print("🎯 target_dist :", target_dist.to_dict())
+
+    # ratio = cible / train
+    weights = {}
+    for attr in train_dist.index:
+        if attr in target_dist:
+            weights[attr] = target_dist[attr] / train_dist[attr]
+        else:
+            weights[attr] = 1.0
+
+    # normalisation
+    avg = np.mean(list(weights.values()))
+    weights = {k: v / avg for k, v in weights.items()}
+    return weights
+
+
 
 def assign_era(dt):
     if dt < pd.to_datetime("2020-03-01"):
@@ -151,7 +177,6 @@ def adapt_data_paul_GX(dataset):
     dataset['YEAR'] = dataset['DATETIME'].dt.year
     dataset['HOUR'] = dataset['DATETIME'].dt.hour
     dataset['MINUTE'] = dataset['DATETIME'].dt.minute
-
 
 
     # Colonne weekend (1 si weekend, 0 si jour de semaine)
@@ -288,22 +313,25 @@ def adapt_data_paul_GX(dataset):
 #------------------------------------------------------------------
 
 # ---------- 1) Liste de modèles de base (diversifiés) ----------
+
 def get_base_models():
     base = []
 
     # XGB – variations (seeds/params)
     xgb_sets = [
-        dict(n_estimators=800, max_depth=6, learning_rate=0.1, subsample=1.0, gamma=0, colsample_bytree=0.8),
-        dict(n_estimators=600, max_depth=8, learning_rate=0.1, subsample=0.7, gamma=1, colsample_bytree=0.9),
-        dict(n_estimators=800, max_depth=5, learning_rate=0.05, subsample=0.7, gamma=0, colsample_bytree=0.7),
-        dict(n_estimators=200, max_depth=10, learning_rate=0.1, subsample=0.9, gamma=0, colsample_bytree=0.8),
-        dict(n_estimators=600, max_depth=7, learning_rate=0.05, subsample=0.8, gamma=1, colsample_bytree=1.0),
-        dict(n_estimators=1000, max_depth=9, learning_rate=0.05, subsample=1.0, gamma=0, colsample_bytree=0.9),
-        dict(n_estimators=400, max_depth=4, learning_rate=0.2, subsample=0.85, gamma=1, colsample_bytree=0.7),
-        dict(n_estimators=700, max_depth=7, learning_rate=0.1, subsample=0.75, gamma=0, colsample_bytree=0.85),
-        dict(n_estimators=500, max_depth=6, learning_rate=0.15, subsample=0.75, gamma=2, colsample_bytree=0.9),
-        dict(n_estimators=900, max_depth=8, learning_rate=0.03, subsample=0.9, gamma=0, colsample_bytree=1.0),
+    # --- Autour de B : depth 6, réglages fins ---
+    {"n_estimators": 1000, "learning_rate": 0.09, "max_depth": 6, "min_child_weight": 3, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 1.0},
+    {"n_estimators": 1100, "learning_rate": 0.08, "max_depth": 6, "min_child_weight": 3, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 0.5, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1200, "learning_rate": 0.07, "max_depth": 6, "min_child_weight": 4, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1300, "learning_rate": 0.06, "max_depth": 6, "min_child_weight": 5, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 1.0, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 900,  "learning_rate": 0.10, "max_depth": 6, "min_child_weight": 4, "subsample": 0.85, "colsample_bytree": 0.90, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 1.0},
+    {"n_estimators": 1000, "learning_rate": 0.10, "max_depth": 6, "min_child_weight": 5, "subsample": 0.85, "colsample_bytree": 0.85, "gamma": 0.5, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1200, "learning_rate": 0.08, "max_depth": 6, "min_child_weight": 6, "subsample": 0.95, "colsample_bytree": 0.90, "gamma": 0.5, "reg_alpha": 0.0,   "reg_lambda": 3.0},
+    {"n_estimators": 1400, "learning_rate": 0.07, "max_depth": 6, "min_child_weight": 4, "subsample": 0.85, "colsample_bytree": 0.95, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1600, "learning_rate": 0.05, "max_depth": 6, "min_child_weight": 3, "subsample": 0.90, "colsample_bytree": 0.90, "gamma": 0.0, "reg_alpha": 0.0,   "reg_lambda": 2.0},
+    {"n_estimators": 1500, "learning_rate": 0.06, "max_depth": 6, "min_child_weight": 5, "subsample": 0.95, "colsample_bytree": 0.85, "gamma": 0.5, "reg_alpha": 0.0,   "reg_lambda": 3.0},
     ]
+
     for i, p in enumerate(xgb_sets):
         base.append((
             f"xgb_{i}",
@@ -351,7 +379,7 @@ def predict_with_blend(fitted_base, features, df, weights):
     base_mat = np.column_stack([mdl.predict(X) for mdl in fitted_base])
     return base_mat.dot(weights)
 
-def train_stacking_oof(df, val_ref=None, target="WAIT_TIME_IN_2H", n_splits=5, weight_mode="none"):
+def train_stacking_oof(df, val_ref=None, target="WAIT_TIME_IN_2H", n_splits=2, weight_mode="none"):
     df["DATETIME"] = pd.to_datetime(df["DATETIME"])
 
     features = [c for c in df.columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
@@ -379,6 +407,24 @@ def train_stacking_oof(df, val_ref=None, target="WAIT_TIME_IN_2H", n_splits=5, w
         raise ValueError("Mode de pondération inconnu")
 
     weights = weights + 0.01  # éviter poids nuls
+
+    if val_ref is not None:
+        # Distribution des attractions dans val/test
+        val_dist = (
+            val_ref["ENTITY_DESCRIPTION_SHORT"]
+            .value_counts(normalize=True)
+            .reset_index()
+        )
+        # Renommer proprement les colonnes
+        val_dist.columns = ["ENTITY_DESCRIPTION_SHORT", "Target"]
+
+        print("📊 Distribution val_ref corrigée :", val_dist.head())
+
+        # Calcul des poids par attraction
+        attr_weights = compute_attraction_weights(df, val_dist)
+
+        # Appliquer les poids
+        weights = weights * df["ENTITY_DESCRIPTION_SHORT"].map(attr_weights).values
 
 
     # Modèles de base
@@ -455,7 +501,7 @@ if __name__ == "__main__":
     # Validation externe
     y_pred_stack = predict_stacking(fitted_base, meta, features, val)
     y_pred_blend = predict_with_blend(fitted_base, features, val, blend_weights)
-    y_pred = 0.5 * y_pred_stack + 0.5 * y_pred_blend
+    y_pred = 0.3 * y_pred_stack + 0.7 * y_pred_blend
 
     val['y_pred'] = y_pred
     val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_stacking.csv", index=False)
