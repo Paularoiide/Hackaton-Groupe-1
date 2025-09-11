@@ -34,6 +34,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error
+from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
 
 valsetsansmeteo = pd.read_table('waiting_times_X_test_val.csv', sep=',', decimal='.')
 valsetmeteo = pd.read_table('valmeteo.csv', sep=',', decimal='.')
@@ -206,21 +207,15 @@ def adapt_data_paul_GX(dataset):
 #------------------------------------------------------------------
 
 # ---------- 1) Liste de modèles de base (diversifiés) ----------
+
+
 def get_base_models():
     base = []
 
-    # XGB – variations (seeds/params)
+    # === XGB déjà existants ===
     xgb_sets = [
-        dict(n_estimators=800, max_depth=6, learning_rate=0.1, subsample=1.0, gamma=0, colsample_bytree=0.8),
-        dict(n_estimators=600, max_depth=8, learning_rate=0.1, subsample=0.7, gamma=1, colsample_bytree=0.9),
-        dict(n_estimators=800, max_depth=5, learning_rate=0.05, subsample=0.7, gamma=0, colsample_bytree=0.7),
-        dict(n_estimators=200, max_depth=10, learning_rate=0.1, subsample=0.9, gamma=0, colsample_bytree=0.8),
-        dict(n_estimators=600, max_depth=7, learning_rate=0.05, subsample=0.8, gamma=1, colsample_bytree=1.0),
-        dict(n_estimators=1000, max_depth=9, learning_rate=0.05, subsample=1.0, gamma=0, colsample_bytree=0.9),
-        dict(n_estimators=400, max_depth=4, learning_rate=0.2, subsample=0.85, gamma=1, colsample_bytree=0.7),
-        dict(n_estimators=700, max_depth=7, learning_rate=0.1, subsample=0.75, gamma=0, colsample_bytree=0.85),
-        dict(n_estimators=500, max_depth=6, learning_rate=0.15, subsample=0.75, gamma=2, colsample_bytree=0.9),
-        dict(n_estimators=900, max_depth=8, learning_rate=0.03, subsample=0.9, gamma=0, colsample_bytree=1.0),
+        dict(n_estimators=600, max_depth=7, learning_rate=0.07, subsample=0.85, colsample_bytree=0.9),
+        dict(n_estimators=900, max_depth=8, learning_rate=0.03, subsample=0.9, colsample_bytree=1.0),
     ]
     for i, p in enumerate(xgb_sets):
         base.append((
@@ -228,19 +223,32 @@ def get_base_models():
             xgb.XGBRegressor(
                 random_state=42 + i, n_jobs=-1,
                 tree_method="hist",
+                eval_metric="rmse",
                 **p
             )
         ))
 
-    # Forêts (robustes, patterns différents)
+    # === Forêts classiques ===
     base.append(("rf_0", RandomForestRegressor(
         n_estimators=600, max_depth=12, min_samples_leaf=2,
         n_jobs=-1, random_state=7
     )))
-    base.append(("et_0", ExtraTreesRegressor(
-        n_estimators=700, max_depth=None, min_samples_leaf=1,
-        n_jobs=-1, random_state=11
-    )))
+
+    # === Plusieurs ExtraTrees (forts) ===
+    et_sets = [
+        dict(n_estimators=700, max_depth=None, min_samples_leaf=1),
+        dict(n_estimators=1000, max_depth=20, min_samples_leaf=2),
+        dict(n_estimators=800, max_depth=15, min_samples_leaf=3),
+        dict(n_estimators=1200, max_depth=None, min_samples_leaf=1, max_features="sqrt"),
+    ]
+    for j, p in enumerate(et_sets):
+        base.append((
+            f"et_{j}",
+            ExtraTreesRegressor(
+                n_jobs=-1, random_state=100 + j,
+                **p
+            )
+        ))
 
     return base
 
@@ -329,15 +337,15 @@ if __name__ == "__main__":
     df = pd.read_csv("weather_data_combined.csv")
     df = adapt_data_paul_GX(df)
     # Entraînement stacking
-    fitted_base, meta, features = train_stacking_oof(df)
+    fitted_base, meta, features, blend_weights = train_stacking_oof(df)
 
     # Validation externe
     val = pd.read_csv("valmeteo.csv")
     val = adapt_data_paul_GX(val)
 
-    y_pred_stack = predict_stacking(fitted_base, meta_model, features, val)
+    y_pred_stack = predict_stacking(fitted_base, meta, features, val)
     y_pred_blend = predict_with_blend(fitted_base, features, val, blend_weights)
-    y_pred = 0.5 * y_pred_stack + 0.5 * y_pred_blend   # 50/50 simple (tu peux tuner ce ratio)
+    y_pred = 0.3 * y_pred_stack + 0.7 * y_pred_blend   # 50/50 simple (tu peux tuner ce ratio)
 
     val['y_pred'] = y_pred
     val[['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']].assign(KEY="Validation").to_csv("val_predictions_stacking.csv", index=False)
