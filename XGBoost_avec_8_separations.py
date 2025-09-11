@@ -249,97 +249,86 @@ def train(df, features, target="WAIT_TIME_IN_2H"):
 
     return model
 
-# Put the dataset into a pandas DataFrame
-dataset = pd.read_table('weather_data_combined.csv', sep=',', decimal='.')
+# Entraîner les modèles par groupe 
 
-#On adapte le dataset
-groupes = adapter_dataset_8_groupes(dataset)
-models = {}
-for groupe_name, groupe_data in groupes.items():
-    if not groupe_data.empty:
-        print(f"Training model for {groupe_name} with {len(groupe_data)} samples")
+def train_8_groupes(groupes, target="WAIT_TIME_IN_2H"):
+    models = {}
+    features = [c for c in groupes['groupe_1'].columns if c not in [target, "DATETIME", "ENTITY_DESCRIPTION_SHORT", 
+                                                  "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW"]]
+    
+    for groupe_name, df in groupes.items():
+        if df.empty:
+            continue
         
-        # Define features and target
-        features = [col for col in groupe_data.columns if col not in ['WAIT_TIME_IN_2H', 'DATETIME', 'ENTITY_DESCRIPTION_SHORT', 'TIME_TO_PARADE_1', 'TIME_TO_PARADE_2', 'TIME_TO_NIGHT_SHOW']]
-        target = 'WAIT_TIME_IN_2H'
+        print(f"\n--- Entraînement modèle {groupe_name} ---")
+        print(f"Taille du dataset: {len(df)} lignes")
         
-        # Train model
-        model = train(groupe_data, features, target)
-        models[groupe_name] = model
+        rf = train(df, features, target)
+        
+        # Sauvegarde du modèle
+        models[groupe_name] = rf
+        
+        # Importance des features (seulement si assez de données)
+        if len(df) > 50:
+            feat_importances = pd.DataFrame({
+                "Feature": features,
+                "Importance": rf.feature_importances_
+            }).sort_values("Importance", ascending=False)
+            
+            print(f"\nTop 5 features {groupe_name}:\n", feat_importances.head(5))
 
-# Test sur validation externe
+    return models, features
+
+
+def predict_by_attr_and_parade_groups(models_8, features, val_8_groupes):
+    """
+    Applique le bon modèle selon le nom du groupe sur le dict de DataFrames `val_8_groupes`
+    (structure identique à celle renvoyée par adapter_dataset_8_groupes), et renvoie
+    une Series de prédictions alignée sur les index originaux.
+    """
+    preds_parts = []
+    for name, df_g in val_8_groupes.items():
+        if df_g.empty:
+            continue
+        model = models_8.get(name)
+        if model is None:
+            # pas de modèle pour ce groupe -> on laisse NaN
+            preds_parts.append(pd.Series(np.nan, index=df_g.index, name="y_pred"))
+            continue
+        # s'assurer que toutes les features existent, sinon remplir 0
+        Xg = df_g.reindex(columns=features, fill_value=0)
+        yhat = model.predict(Xg)
+        preds_parts.append(pd.Series(yhat, index=df_g.index, name="y_pred"))
+
+    if not preds_parts:
+        # aucun groupe prédictible
+        return pd.Series(dtype=float, name="y_pred")
+
+    # concat et ordre d'origine (index global trié croissant)
+    y_pred = pd.concat(preds_parts).sort_index()
+    y_pred.name = "y_pred"
+    return y_pred
+
+# ------------------------
+# Utilisation
+# ------------------------
+# Préparation des données avec les 8 groupes
+df = pd.read_csv("weather_data_combined.csv")
+groupes = adapter_dataset_8_groupes(df)
+
+# Entraînement des modèles
+models_8, features = train_8_groupes(groupes)
+
+# Prédiction sur les données de validation
 val = pd.read_csv("valmeteo.csv")
-adapter_dataset_8_groupes(val)
+val_8 = adapter_dataset_8_groupes(val)
 
-# Prédire avec les 8 modèles
-def predict_eight_models(models, val):
-    features = [c for c in val if c not in ["WAIT_TIME_IN_2H", "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
-    # Créer une colonne pour les prédictions
-    val['y_pred'] = np.nan
-    
-    # Créer les masques pour les 8 groupes
-    mask_parade1 = ~val['TIME_TO_PARADE_1'].isna()
-    mask_parade2 = ~val['TIME_TO_PARADE_2'].isna()
-    mask_night_show = ~val['TIME_TO_NIGHT_SHOW'].isna()
-    
-    # Groupe 1: Parade1 présent, Parade2 présent, NightShow présent
-    mask1 = mask_parade1 & mask_parade2 & mask_night_show
-    if 'groupe_1' in models:
-        X_val_1 = val[mask1][features]
-        val.loc[mask1, 'y_pred'] = models['groupe_1'].predict(X_val_1)
-    
-    # Groupe 2: Parade1 présent, Parade2 présent, NightShow absent
-    mask2 = mask_parade1 & mask_parade2 & ~mask_night_show
-    if 'groupe_2' in models:
-        X_val_2 = val[mask2][features]
-        val.loc[mask2, 'y_pred'] = models['groupe_2'].predict(X_val_2)
-    
-    # Groupe 3: Parade1 présent, Parade2 absent, NightShow présent
-    mask3 = mask_parade1 & ~mask_parade2 & mask_night_show
-    if 'groupe_3' in models:
-        X_val_3 = val[mask3][features]
-        val.loc[mask3, 'y_pred'] = models['groupe_3'].predict(X_val_3)
-    
-    # Groupe 4: Parade1 présent, Parade2 absent, NightShow absent
-    mask4 = mask_parade1 & ~mask_parade2 & ~mask_night_show
-    if 'groupe_4' in models:
-        X_val_4 = val[mask4][features]
-        val.loc[mask4, 'y_pred'] = models['groupe_4'].predict(X_val_4)
-    
-    # Groupe 5: Parade1 absent, Parade2 présent, NightShow présent
-    mask5 = ~mask_parade1 & mask_parade2 & mask_night_show
-    if 'groupe_5' in models:
-        X_val_5 = val[mask5][features]
-        val.loc[mask5, 'y_pred'] = models['groupe_5'].predict(X_val_5)
-    
-    # Groupe 6: Parade1 absent, Parade2 présent, NightShow absent
-    mask6 = ~mask_parade1 & mask_parade2 & ~mask_night_show
-    if 'groupe_6' in models:
-        X_val_6 = val[mask6][features]
-        val.loc[mask6, 'y_pred'] = models['groupe_6'].predict(X_val_6)
-    # Groupe 7: Parade1 absent, Parade2 absent, NightShow présent
-    mask7 = ~mask_parade1 & ~mask_parade2 & mask_night_show
-    if 'groupe_7' in models:
-        X_val_7 = val[mask7][features]
-        val.loc[mask7, 'y_pred'] = models['groupe_7'].predict(X_val_7)
-    # Groupe 8: Parade1 absent, Parade2 absent, NightShow absent
-    mask8 = ~mask_parade1 & ~mask_parade2 & ~mask_night_show
-    if 'groupe_8' in models:
-        X_val_8 = val[mask8][features]
-        val.loc[mask8, 'y_pred'] = models['groupe_8'].predict(X_val_8)
+Y_pred = predict_by_attr_and_parade_groups(models_8, features, val_8)
 
-
-    return val['y_pred']
-
-features = [c for c in dataset if c not in ["WAIT_TIME_IN_2H", "DATETIME", "ENTITY_DESCRIPTION_SHORT"]]
-
-X_val = val[features]
-Y_val = predict_eight_models(models, val)
-val['y_pred'] = Y_val
+val['y_pred'] = Y_pred
 
 columns_valcsv = ['DATETIME','ENTITY_DESCRIPTION_SHORT','y_pred']
 valcsv = val[columns_valcsv]
 valcsv["KEY"] = "Validation"
 
-valcsv.to_csv("XGBoost_:_8_groupes.csv", index=False)
-
+valcsv.to_csv("XGBoost_separe_en_8.csv", index=False)
