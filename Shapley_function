@@ -1,0 +1,44 @@
+# def CalculShapley(rf_pre, df_pre, features, rf_post, df_post, sample_size_pre=100, sample_size_post=100):
+#     import shap
+#     import numpy as np
+
+#     # S'assurer que les features existent
+#     df_pre = df_pre.copy()
+#     df_post = df_post.copy()
+    
+#     df_pre = df_pre[features].dropna()
+#     df_post = df_post[features].dropna()
+    
+#     # Échantillons aléatoires pour accélérer le calcul
+#     if sample_size_pre < len(df_pre):
+#         sample_df_pre = df_pre.sample(sample_size_pre, random_state=42)
+#     else:
+#         sample_df_pre = df_pre.copy()
+
+#     if sample_size_post < len(df_post):
+#         sample_df_post = df_post.sample(sample_size_post, random_state=42)
+#     else:
+#         sample_df_post = df_post.copy()
+
+#     # Assurer les types corrects
+#     sample_df_pre = sample_df_pre.astype(df_pre.dtypes.to_dict())
+#     sample_df_post = sample_df_post.astype(df_post.dtypes.to_dict())
+
+#     # Explainers rapides pour Random Forest
+#     explainer_pre = shap.TreeExplainer(rf_pre, model_output="raw")
+#     explainer_post = shap.TreeExplainer(rf_post, model_output="raw")
+
+#     # Calcul des valeurs SHAP
+#     shap_values_pre = explainer_pre.shap_values(sample_df_pre)
+#     shap_values_post = explainer_post.shap_values(sample_df_post)
+
+#     # Affichage summary plot
+#     print("📊 SHAP Summary - Pré-COVID")
+#     shap.summary_plot(shap_values_pre, sample_df_pre, feature_names=features, show=True)
+#     plt.show()
+
+#     print("📊 SHAP Summary - Post-COVID")
+#     shap.summary_plot(shap_values_post, sample_df_post, feature_names=features, show=True)
+#     plt.show()
+
+#     return shap_values_pre, shap_values_post
